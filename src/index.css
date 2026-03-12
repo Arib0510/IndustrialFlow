@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* We still want to keep our custom grab cursor! */
+.react-draggable-dragging {
+  cursor: grabbing !important;
+  opacity: 0.9;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+}
