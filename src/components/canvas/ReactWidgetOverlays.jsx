@@ -1,35 +1,67 @@
 import React, { useContext, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle, Fan } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { SCADAContext } from "../../context/SCADAContext";
 import { ResizeOverlay } from "./ResizeOverlay";
+import { GaugeWidget } from "./GaugeWidget";
 
-// ─── Shared widget card wrapper ───────────────────────────────────────────────
-const WidgetCard = ({ style, children, className = '', extraStyle = {} }) => (
-  <div
-    className={`theme-transition ${className}`}
-    style={{
+// ─── Industrial Hardware UI Components ─────────────────────────────────────
+
+// 1. Physically rendered mounting screw
+const Screw = ({ style }) => (
+  <div style={{
+    width: 6, height: 6, borderRadius: '50%',
+    background: 'linear-gradient(135deg, #e2e8f0, #64748b)',
+    border: '1px solid #334155',
+    boxShadow: 'inset 1px 1px 2px #fff, 1px 1px 2px rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', ...style
+  }}>
+    <div style={{ width: '80%', height: 1, background: '#334155', transform: 'rotate(45deg)' }} />
+  </div>
+);
+
+// 2. Heavy metallic backplate
+const HardwarePanel = ({ isDarkMode, children, style, className = '' }) => {
+  const bg = isDarkMode 
+    ? 'linear-gradient(135deg, #334155 0%, #0f172a 100%)' // Dark Anodized Aluminum
+    : 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)'; // Light Brushed Steel
+  const borderTop = isDarkMode ? '#475569' : '#ffffff';
+  const borderBottom = isDarkMode ? '#020617' : '#94a3b8';
+  
+  return (
+    <div className={className} style={{
       ...style,
-      backgroundColor: 'var(--bg-panel)',
-      border: '2px solid var(--border)',
-      borderRadius: '8px',
-      ...extraStyle,
-    }}
-  >
+      background: bg,
+      borderTop: `2px solid ${borderTop}`,
+      borderLeft: `2px solid ${borderTop}`,
+      borderBottom: `2px solid ${borderBottom}`,
+      borderRight: `2px solid ${borderBottom}`,
+      borderRadius: '2px',
+      boxShadow: '4px 4px 10px rgba(0,0,0,0.4)',
+      position: 'relative'
+    }}>
+      <Screw style={{ top: 4, left: 4 }} />
+      <Screw style={{ top: 4, right: 4 }} />
+      <Screw style={{ bottom: 4, left: 4 }} />
+      <Screw style={{ bottom: 4, right: 4 }} />
+      {children}
+    </div>
+  );
+};
+
+// 3. Engraved Metal Nameplate
+const EngravedLabel = ({ isDarkMode, children, className = '' }) => (
+  <div className={`text-[10px] font-bold uppercase tracking-widest truncate w-full text-center mb-2 px-2 ${className}`} 
+       style={{ 
+         color: isDarkMode ? '#94a3b8' : '#475569',
+         textShadow: isDarkMode ? '1px 1px 1px #000' : '1px 1px 1px #fff'
+       }}>
     {children}
   </div>
 );
 
-const Label = ({ children, className = '' }) => (
-  <div className={`text-[11px] font-bold truncate w-full text-center mb-1 ${className}`} style={{ color: 'var(--text-secondary)' }}>
-    {children}
-  </div>
-);
-
-const ValueDisplay = ({ children }) => (
-  <div className="text-[14px] font-mono font-bold" style={{ color: 'var(--text-primary)' }}>{children}</div>
-);
-
+// ─── Main Overlays Engine ──────────────────────────────────────────────────
 export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, paperRef }) => {
   const { tags, writeTag, isSimulating, isDarkMode } = useContext(SCADAContext);
   const transformRef = useRef(null);
@@ -49,21 +81,11 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
     return () => cancelAnimationFrame(animId);
   }, [paperRef]);
 
-  // Theme-aware tooltip style for charts
-  const tooltipStyle = {
-    backgroundColor: 'var(--tooltip-bg)',
-    borderColor: 'var(--tooltip-border)',
-    fontSize: '10px',
-    color: 'var(--tooltip-text)',
-  };
+  const tooltipStyle = { backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '10px', color: '#f8fafc' };
 
   return (
     <div className="absolute inset-0 z-5 pointer-events-none">
-      {/* Transform wrapper – stays in sync with JointJS paper zoom/pan */}
-      <div
-        ref={transformRef}
-        style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0' }}
-      >
+      <div ref={transformRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0' }}>
         {nodes.map(nodeData => {
         let val = 0;
         const boundedKey = nodeData.boundTag || nodeData.tagKey;
@@ -81,240 +103,228 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           transform: `rotate(${angle}deg)`, pointerEvents: 'none'
         };
 
-        // ── Line / Bar Chart ────────────────────────────────────────────────
+        // ── Hardware LCD / Charts
         if (nodeData.category === 'line_chart' || nodeData.category === 'bar_chart') {
           return (
-            <div key={nodeData.id} style={{ ...style, backgroundColor: 'var(--bg-main)', borderRadius: 6, border: '1px solid var(--border)' }}
-              className="flex flex-col p-2 shadow-inner theme-transition">
-              <div className="text-[10px] font-bold uppercase tracking-widest pl-2 mb-1 truncate" style={{ color: 'var(--text-secondary)' }}>{name || "Chart"}</div>
-              <div className="flex-1 min-h-0 w-full overflow-hidden">
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col p-2">
+              <EngravedLabel isDarkMode={isDarkMode}>{name || "Chart"}</EngravedLabel>
+              <div className="flex-1 min-h-0 w-full overflow-hidden" style={{ background: '#020617', border: 'inset 2px #000', borderRadius: 2 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   {nodeData.category === 'line_chart' ? (
-                    <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                    <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <XAxis dataKey="time" hide={true} />
-                      <YAxis stroke="var(--border)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} domain={['auto', 'auto']} />
+                      <YAxis stroke="#475569" tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['auto', 'auto']} />
                       <Tooltip contentStyle={tooltipStyle} itemStyle={{ color }} />
-                      <Line type="monotone" dataKey={boundedKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
+                      <Line type="stepAfter" dataKey={boundedKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
                     </LineChart>
                   ) : (
-                    <BarChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <XAxis dataKey="time" hide={true} />
-                      <YAxis stroke="var(--border)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} domain={[0, 'auto']} />
-                      <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(128,128,128,0.1)' }} itemStyle={{ color }} />
+                      <YAxis stroke="#475569" tick={{ fontSize: 10, fill: '#94a3b8' }} domain={[0, 'auto']} />
+                      <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.05)' }} itemStyle={{ color }} />
                       <Bar dataKey={boundedKey} fill={color} isAnimationActive={false} />
                     </BarChart>
                   )}
                 </ResponsiveContainer>
               </div>
+            </HardwarePanel>
+          );
+        }
+
+        // ── Analog Gauge
+        if (nodeData.category === 'gauge_dial') {
+          return (
+            <div key={nodeData.id} style={{ ...style, pointerEvents: 'auto' }}>
+              <HardwarePanel isDarkMode={isDarkMode} style={{ width: '100%', height: '100%', borderRadius: '50%' }}>
+                <GaugeWidget node={nodeData} />
+              </HardwarePanel>
             </div>
           );
         }
 
-        // ── Tank Level ──────────────────────────────────────────────────────
-        if (nodeData.category === 'tank_level') {
-          const pcent = Math.max(0, Math.min(100, val || 0));
+        // ── Native JointJS Overlays (Tanks, Pumps, Valves) -> Screwed Nameplates
+        if (['tank_level', 'motor_status', 'valve_control'].includes(nodeData.category)) {
+          let text = "";
+          let bg = isDarkMode ? '#1e293b' : '#f8fafc';
+          let textColor = isDarkMode ? '#f8fafc' : '#0f172a';
+          
+          if (nodeData.category === 'tank_level') text = `${Number(Math.max(0, Math.min(100, val || 0))).toFixed(1)} ${unit || '%'}`;
+          else if (nodeData.category === 'motor_status') { text = val ? "RUNNING" : "STOPPED"; textColor = val ? '#22C55E' : '#EF4444'; }
+          else if (nodeData.category === 'valve_control') { text = val ? "OPEN" : "CLOSED"; textColor = val ? '#22C55E' : '#EF4444'; }
+
           return (
-            <WidgetCard key={nodeData.id} style={style}
-              className="flex flex-col items-center justify-between p-2">
-              <Label>{name}</Label>
-              <div className="flex-1 w-1/2 min-w-[40px] border-2 mx-auto my-2 rounded relative overflow-hidden theme-transition"
-                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-canvas)' }}>
-                <div className="absolute bottom-0 left-0 right-0 transition-all duration-300" style={{ height: `${pcent}%`, backgroundColor: color }}></div>
+            <div key={nodeData.id} style={style} className="flex flex-col items-center justify-center pointer-events-none">
+              <div className="relative px-3 py-1 mt-6 shadow-lg" style={{ background: bg, border: '1px solid #475569', borderRadius: 2 }}>
+                <Screw style={{ top: 2, left: 2, width: 4, height: 4 }} />
+                <Screw style={{ top: 2, right: 2, width: 4, height: 4 }} />
+                <Screw style={{ bottom: 2, left: 2, width: 4, height: 4 }} />
+                <Screw style={{ bottom: 2, right: 2, width: 4, height: 4 }} />
+                <div className="text-[10px] font-mono font-bold" style={{ color: textColor, textShadow: '0 0 2px rgba(0,0,0,0.5)' }}>{text}</div>
               </div>
-              <ValueDisplay>{Number(pcent).toFixed(1)} {unit || '%'}</ValueDisplay>
-            </WidgetCard>
+            </div>
           );
         }
 
-        // ── Battery Level ───────────────────────────────────────────────────
-        if (nodeData.category === 'battery_level') {
-          const pcent = Math.max(0, Math.min(100, val || 0));
-          const fcolor = pcent > 20 ? (pcent > 50 ? "#22C55E" : "#F59E0B") : "#EF4444";
-          return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-3">
-              <Label>{name}</Label>
-              <div className="w-full h-8 border-2 rounded-md relative p-1 theme-transition"
-                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-canvas)' }}>
-                <div className="h-full rounded-sm transition-all duration-300" style={{ width: `${pcent}%`, backgroundColor: fcolor }}></div>
-                <div className="absolute top-1/2 -translate-y-1/2 -right-2 w-2 h-4 rounded-r-sm" style={{ backgroundColor: 'var(--border-strong)' }}></div>
-              </div>
-              <div className="text-[16px] font-mono font-bold mt-2" style={{ color: 'var(--text-primary)' }}>{Number(pcent).toFixed(0)} %</div>
-            </WidgetCard>
-          );
-        }
-
-        // ── Gauge Dial ──────────────────────────────────────────────────────
-        if (nodeData.category === 'gauge_dial') {
-          const pcent = Math.max(0, Math.min(100, val || 0));
-          const rot = (pcent / 100) * 270 - 135;
-          return (
-            <WidgetCard key={nodeData.id} style={style} className="relative flex flex-col items-center p-2">
-              <div className="text-[10px] font-bold uppercase tracking-widest w-full text-center mb-1" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="relative flex-1 w-full flex items-center justify-center min-h-0">
-                <div className="absolute w-[80%] h-[80%] rounded-full border-[6px] border-b-transparent rotate-45" style={{ borderColor: 'var(--border)' }}></div>
-                <div className="absolute w-[2px] h-[40%] origin-bottom shadow-lg transition-transform duration-300" style={{ backgroundColor: '#EF4444', transform: `translateY(-50%) rotate(${rot}deg)` }}></div>
-                <div className="absolute w-2.5 h-2.5 rounded-full shadow-lg" style={{ backgroundColor: 'var(--border-strong)' }}></div>
-              </div>
-              <div className="text-[12px] font-mono font-bold mt-1 shrink-0" style={{ color: 'var(--text-primary)' }}>{Number(val).toFixed(0)} {unit}</div>
-            </WidgetCard>
-          );
-        }
-
-        // ── Progress Bar ────────────────────────────────────────────────────
+        // ── Industrial Segmented Progress Bar
         if (nodeData.category === 'progress_bar') {
           const pcent = Math.max(0, Math.min(100, val || 0));
+          const segments = 12;
+          const activeSegments = Math.round((pcent / 100) * segments);
+          
           return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col justify-center p-3">
-              <Label className="text-left mb-2">{name}</Label>
-              <div className="w-full h-4 rounded-full relative overflow-hidden" style={{ backgroundColor: 'var(--bg-hover)' }}>
-                <div className="h-full transition-all duration-300" style={{ width: `${pcent}%`, backgroundColor: color }}></div>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-3">
+              <EngravedLabel isDarkMode={isDarkMode} className="text-left">{name}</EngravedLabel>
+              <div className="w-full h-6 flex gap-1 p-1" style={{ background: '#020617', border: 'inset 2px #000', borderRadius: 2 }}>
+                {Array.from({ length: segments }).map((_, i) => (
+                  <div key={i} className="flex-1 h-full transition-all duration-300" style={{ 
+                    background: i < activeSegments ? color : '#1e293b',
+                    boxShadow: i < activeSegments ? `0 0 8px ${color}` : 'none',
+                    opacity: i < activeSegments ? 1 : 0.3,
+                    borderRadius: 1
+                  }} />
+                ))}
               </div>
-              <div className="text-[14px] font-mono font-bold mt-2" style={{ color: 'var(--text-primary)' }}>{Number(val).toFixed(1)} {unit}</div>
-            </WidgetCard>
+              <div className="text-[12px] font-mono font-bold mt-2 text-right" style={{ color: color, textShadow: `0 0 5px ${color}` }}>
+                {Number(val).toFixed(1)} {unit}
+              </div>
+            </HardwarePanel>
           );
         }
 
-        // ── Digital Readout (LCD) ───────────────────────────────────────────
+        // ── Recessed LCD Readout
         if (nodeData.category === 'digital_readout') {
           return (
-            <div key={nodeData.id} style={{ ...style, backgroundColor: isDarkMode ? '#020617' : '#F0F4F8', borderRadius: 4, border: '2px solid var(--border)' }}
-              className="text-center flex flex-col justify-center p-2 theme-transition">
-              <div className="text-[10px] font-bold truncate mb-1" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="text-[24px] font-mono font-bold leading-none" style={{ color }}>{Number(val).toFixed(1)} <span className="text-xs">{unit}</span></div>
-            </div>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
+              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
+              <div className="mx-2 p-1" style={{ background: '#022c22', border: 'inset 3px #000', borderRadius: 2 }}>
+                <div className="text-[24px] font-mono font-bold leading-none" style={{ color, textShadow: `0px 0px 8px ${color}` }}>
+                  {Number(val).toFixed(1)} <span className="text-[10px]">{unit}</span>
+                </div>
+              </div>
+            </HardwarePanel>
           );
         }
 
-        // ── Temp / Numeric Display ──────────────────────────────────────────
+        // ── Digital Panel Meter
         if (nodeData.category === 'temp_display') {
           return (
-            <WidgetCard key={nodeData.id} style={style} className="text-center flex flex-col justify-center p-2">
-              <div className="text-[12px] font-bold truncate mb-2" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="text-[24px] font-sans font-bold leading-none" style={{ color }}>{typeof val === 'string' ? val : Number(val).toFixed(1)} <span className="text-sm">{unit}</span></div>
-            </WidgetCard>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
+              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
+              <div className="text-[24px] font-sans font-black leading-none drop-shadow-md" style={{ color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+                {typeof val === 'string' ? val : Number(val).toFixed(1)} <span className="text-sm">{unit}</span>
+              </div>
+            </HardwarePanel>
           );
         }
 
-        // ── Toggle Switch ───────────────────────────────────────────────────
+        // ── Industrial Rotary Toggle Switch
         if (nodeData.category === 'toggle_switch') {
           const isON = !!val;
           return (
-            <WidgetCard key={nodeData.id} style={style} className="flex items-center p-3 gap-3">
-              <div className={`text-[12px] font-bold flex-1 truncate`} style={{ color: isON ? '#22C55E' : 'var(--text-secondary)' }}>
-                {isON ? "ON" : "OFF"}
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex items-center p-3 gap-2">
+              <div className="flex-1 flex flex-col items-center">
+                <EngravedLabel isDarkMode={isDarkMode} className="mb-0">{name}</EngravedLabel>
+                <div className="text-[10px] font-bold" style={{ color: isON ? '#22C55E' : '#EF4444' }}>{isON ? "ON" : "OFF"}</div>
               </div>
-              <div
+              <div 
                 onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, !isON); }}
-                style={{ pointerEvents: 'auto', backgroundColor: isON ? '#22C55E' : 'var(--bg-hover)' }}
-                className="w-14 h-7 rounded-full flex items-center px-1 cursor-pointer transition-colors shadow-inner shrink-0"
+                style={{ 
+                  pointerEvents: 'auto', width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
+                  background: 'radial-gradient(circle at 30% 30%, #64748b, #0f172a)', 
+                  border: '2px solid #334155', boxShadow: '0 4px 6px rgba(0,0,0,0.8), inset 0 2px 4px rgba(255,255,255,0.3)',
+                  transform: isON ? 'rotate(45deg)' : 'rotate(-45deg)', transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                }}
+                className="relative shrink-0"
               >
-                <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${isON ? 'translate-x-7' : ''}`}></div>
+                <div style={{ position: 'absolute', top: 2, left: '50%', marginLeft: -3, width: 6, height: 14, background: isON ? '#22C55E' : '#EF4444', borderRadius: '3px', boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8)' }} />
               </div>
-            </WidgetCard>
+            </HardwarePanel>
           );
         }
 
-        // ── Valve Control ───────────────────────────────────────────────────
-        if (nodeData.category === 'valve_control') {
-          const isOPEN = !!val;
+        // ── Tactile +/- Value Control
+        if (nodeData.category === 'value_control') {
+          const btnStyle = {
+             width: 28, height: 28, borderRadius: '50%', pointerEvents: 'auto', cursor: 'pointer',
+             background: 'linear-gradient(135deg, #ef4444, #991b1b)', border: '2px solid #7f1d1d',
+             boxShadow: '0 3px 5px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.4)',
+             color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          };
           return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <div className="text-[10px] font-bold truncate w-full text-center mb-1" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="relative w-10 h-6 shrink-0 flex items-center justify-center cursor-pointer" style={{ pointerEvents: 'auto' }}
-                onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, !isOPEN); }}>
-                <div className={`absolute border-t-transparent border-b-transparent border-t-12 border-b-12 border-r-16 left-0 transition-colors ${isOPEN ? 'border-r-[#22C55E]' : 'border-r-[#EF4444]'}`}></div>
-                <div className={`absolute border-t-transparent border-b-transparent border-t-12 border-b-12 border-l-16 right-0 transition-colors ${isOPEN ? 'border-l-[#22C55E]' : 'border-l-[#EF4444]'}`}></div>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
+              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
+              <div className="flex items-center gap-2">
+                <button style={btnStyle} onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) - 1); }}>-</button>
+                <div className="w-12 py-1 text-center font-mono font-bold text-[14px]" style={{ background: '#020617', border: 'inset 2px #000', color: '#3B82F6', textShadow: '0 0 5px #3b82f6' }}>
+                  {Number(val).toFixed(0)}
+                </div>
+                <button style={{...btnStyle, background: 'linear-gradient(135deg, #22c55e, #166534)', border: '2px solid #14532d'}} onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) + 1); }}>+</button>
               </div>
-              <div className={`text-[10px] font-bold mt-2`} style={{ color: isOPEN ? '#22C55E' : '#EF4444' }}>{isOPEN ? "OPEN" : "CLOSED"}</div>
-            </WidgetCard>
+            </HardwarePanel>
           );
         }
 
-        // ── Status LED ──────────────────────────────────────────────────────
+        // ── 3D Glass Dome Status LED
         if (nodeData.category === 'status_led') {
           return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <div className="text-[10px] font-bold truncate w-full text-center mb-2" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="w-8 h-8 rounded-full border-2 transition-all duration-300"
-                style={{ backgroundColor: val ? color : 'var(--bg-canvas)', borderColor: val ? color : 'var(--border)', boxShadow: val ? `0 0 15px ${color}` : 'none' }}>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
+              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', border: '3px solid #334155', position: 'relative',
+                background: val ? `radial-gradient(circle at 30% 30%, #fff, ${color} 40%, #000)` : 'radial-gradient(circle at 30% 30%, #64748b, #0f172a)',
+                boxShadow: val ? `0 0 20px ${color}, inset 0 -4px 8px rgba(0,0,0,0.6)` : 'inset 0 -4px 8px rgba(0,0,0,0.6)',
+              }}>
+                {/* Glass Specular Highlight */}
+                <div style={{ position: 'absolute', top: '10%', left: '15%', width: '45%', height: '35%', background: 'linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0))', borderRadius: '50%', transform: 'rotate(-45deg)' }} />
               </div>
-            </WidgetCard>
+            </HardwarePanel>
           );
         }
 
-        // ── Motor Status ────────────────────────────────────────────────────
-        if (nodeData.category === 'motor_status') {
-          return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <div className="text-[12px] font-bold truncate w-full text-center mb-2" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="relative w-10 h-10 border-2 rounded-full flex items-center justify-center overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-                <Fan size={24} className={val ? "animate-spin" : ""} style={{ color: val ? color : 'var(--text-muted)' }} />
-              </div>
-              <div className="text-[10px] font-bold mt-2" style={{ color: val ? '#22C55E' : 'var(--text-secondary)' }}>{val ? "RUNNING" : "STOPPED"}</div>
-            </WidgetCard>
-          );
-        }
-
-        // ── Value Control ───────────────────────────────────────────────────
-        if (nodeData.category === 'value_control') {
-          return (
-            <WidgetCard key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <div className="text-[12px] font-bold truncate w-full text-center mb-2" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-              <div className="flex items-center gap-3">
-                <button className="w-8 h-8 rounded font-bold transition-colors" style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)', pointerEvents: 'auto' }}
-                  onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) - 1); }}>-</button>
-                <div className="text-[20px] font-mono font-bold w-12 text-center" style={{ color: 'var(--accent)' }}>{Number(val).toFixed(0)}</div>
-                <button className="w-8 h-8 rounded font-bold transition-colors" style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-primary)', pointerEvents: 'auto' }}
-                  onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) + 1); }}>+</button>
-              </div>
-            </WidgetCard>
-          );
-        }
-
-        // ── Alert Banner ────────────────────────────────────────────────────
+        // ── Hazard Alert Banner
         if (nodeData.category === 'alert_banner') {
           return (
-            <div key={nodeData.id} style={{ ...style, backgroundColor: 'var(--bg-panel)', borderRadius: 8, border: `2px solid ${val ? '#EF4444' : 'var(--border)'}` }}
-              className="flex items-center p-2 gap-3 transition-colors theme-transition">
-              <AlertTriangle size={24} className={val ? "animate-bounce" : ""} style={{ color: val ? '#EF4444' : 'var(--text-secondary)' }} />
-              <div className="flex flex-col">
-                <div className="text-[10px] font-bold truncate" style={{ color: 'var(--text-secondary)' }}>{name}</div>
-                <div className="text-[14px] font-bold" style={{ color: val ? '#EF4444' : '#22C55E' }}>{val ? "ALERT ACTIVE" : "SYSTEM NORMAL"}</div>
+            <div key={nodeData.id} style={{ 
+              ...style, 
+              background: val ? 'repeating-linear-gradient(45deg, #fbbf24, #fbbf24 15px, #000 15px, #000 30px)' : '#1e293b',
+              border: val ? '4px solid #ef4444' : '4px solid #334155', 
+              boxShadow: val ? '0 0 20px rgba(239, 68, 68, 0.8)' : 'none',
+              borderRadius: 4
+            }} className="flex items-center p-2 gap-3 transition-all theme-transition">
+              <div style={{ width: 24, height: 24, borderRadius: '50%', background: val ? 'radial-gradient(circle, #ffaaaa, #ef4444)' : '#475569', boxShadow: val ? '0 0 15px #ef4444' : 'none' }} className={val ? "animate-pulse shrink-0" : "shrink-0"} />
+              <div className="flex flex-col bg-black/60 px-2 py-1 rounded backdrop-blur-sm">
+                <div className="text-[10px] font-bold text-white uppercase tracking-widest">{name}</div>
+                <div className="text-[14px] font-black" style={{ color: val ? '#ef4444' : '#22C55E' }}>{val ? "HAZARD DETECTED" : "SYSTEM SAFE"}</div>
               </div>
             </div>
           );
         }
 
-        // ── Header Text ─────────────────────────────────────────────────────
+        // ── Engraved Header Text
         if (nodeData.category === 'header_text') {
           return (
-            <div key={nodeData.id} style={style} className="flex items-center">
-              <span className="text-[24px] font-sans font-light whitespace-nowrap" style={{ color }}>{name}</span>
+            <div key={nodeData.id} style={style} className="flex items-center justify-center">
+              <span className="text-[28px] font-sans font-black uppercase tracking-widest" 
+                    style={{ color: isDarkMode ? '#1e293b' : '#cbd5e1', textShadow: isDarkMode ? '1px 1px 2px rgba(255,255,255,0.1), -1px -1px 2px rgba(0,0,0,0.8)' : '1px 1px 2px #fff, -1px -1px 2px rgba(0,0,0,0.2)' }}>
+                {name}
+              </span>
             </div>
           );
         }
 
-        // ── Tag Node ────────────────────────────────────────────────────────
+        // ── Raw Tag Data Block
         if (nodeData.category === 'tagNode') {
           return (
-            <div key={nodeData.id} style={{ ...style, backgroundColor: 'var(--bg-panel)', border: '2px solid var(--accent)', borderRadius: 8 }}
-              className="flex flex-col justify-center p-2 theme-transition">
-              <div className="text-[10px] font-bold font-mono truncate mb-1" style={{ color: 'var(--accent)' }}>{boundedKey || 'Undefined Data Tag'}</div>
-              <div className="text-[16px] font-sans font-bold truncate" style={{ color: 'var(--text-primary)' }}>{val !== undefined ? val.toString() : 'N/A'}</div>
-            </div>
+            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 border-l-4 border-l-amber-500">
+              <div className="text-[10px] font-bold font-mono truncate mb-1" style={{ color: '#F59E0B' }}>{boundedKey || 'NO TAG'}</div>
+              <div className="text-[16px] font-sans font-black truncate" style={{ color: isDarkMode ? '#f8fafc' : '#0f172a' }}>{val !== undefined ? val.toString() : '---'}</div>
+            </HardwarePanel>
           );
         }
 
-        // ── Fallback ────────────────────────────────────────────────────────
-        return (
-          <div key={nodeData.id} style={{ ...style, backgroundColor: 'var(--bg-panel)', border: '2px solid var(--border)', borderRadius: 8 }}
-            className="flex items-center justify-center p-2 theme-transition">
-            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{name || nodeData.category}</span>
-          </div>
-        );
-
+        return null;
       })}
-      </div> {/* end transform wrapper */}
+      </div>
       {selectedCellId && nodes.find(n => n.id === selectedCellId) && !isSimulating && (
         <ResizeOverlay graph={graph} node={nodes.find(n => n.id === selectedCellId)} paperRef={paperRef} />
       )}

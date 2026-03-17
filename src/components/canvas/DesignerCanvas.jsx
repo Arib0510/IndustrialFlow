@@ -1,14 +1,11 @@
-import React, { useState, useRef, useContext, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useContext, useEffect, useMemo } from "react";
 import * as joint from "jointjs";
 import { v4 as uuidv4 } from "uuid";
 import {
-  Database, Link as LinkIcon, Edit3, Pointer, Trash, Settings, Trash2, Grid, Magnet,
-  Activity, Zap, Thermometer, Droplets, Wind, Sun, Power, SlidersHorizontal, CircleDot,
-  BarChart3, LineChart as LineChartIcon, Move, AlertTriangle, Gauge, ToggleRight, Hash,
-  Cpu, Lightbulb, Fan, AirVent, Tv, Cylinder, AlignLeft, Type, Battery, Search,
+  Link as LinkIcon, Edit3, Pointer, Trash, Settings, Trash2, Grid, Magnet,
   Undo2, Redo2, Scissors, Copy, ClipboardPaste, Save, FolderOpen, FileDown,
   ZoomIn, ZoomOut, Maximize2, Plus, Pencil, ChevronDown, ChevronRight,
-  Layers, PlayCircle, StopCircle, Bot, Wrench, Hand
+  Move, Hand, Wrench
 } from "lucide-react";
 
 import { SCADAContext } from "../../context/SCADAContext";
@@ -16,15 +13,61 @@ import { CustomDropdown } from "../ui/CustomDropdown";
 import { CustomColorPicker } from "../ui/CustomColorPicker";
 import { ReactWidgetOverlays } from "./ReactWidgetOverlays";
 import { ResizeOverlay } from "./ResizeOverlay";
-import { ICON_MAP } from "../../constants/config";
 import Minimap from "./Minimap";
 import BuildCustomNodeModal from "../modals/BuildCustomNodeModal";
 import AddDeviceModal from "../modals/AddDeviceModal";
 import TagBadge from "../ui/TagBadge";
 
-// Components extracted to separate files: Minimap, BuildCustomNodeModal, AddDeviceModal, TagBadge
+// ─── HMI Symbols Dynamic Path Resolver ───────────────────────────────────────
+// This function maps the component type and selected hex color to your uploaded PNGs.
+const getSymbolImagePath = (type, colorHex) => {
+  const cMap = {
+    '#3B82F6': 'Blue', '#EF4444': 'Red', '#10B981': 'Green',
+    '#22C55E': 'Green', '#F59E0B': 'Yellow', '#64748B': 'Gray', '#CBD5E1': 'Gray'
+  };
+  const color = cMap[(colorHex || '').toUpperCase()] || 'Blue';
 
+  switch(type) {
+    case 'tank_level': return `/HMISymbols/Tanks/Tanks Large/Tank1 ${color} Front.png`;
+    case 'motor_status': return `/HMISymbols/Pumps/Pumps Large/Pump ${color} Right.png`;
+    case 'valve_control': return `/HMISymbols/Valves/Valves Large/Valve1 ${color}.png`;
+    case 'pipe_horz': return `/HMISymbols/Pipes/Pipes Large/Pipe ${color} Horz.png`;
+    case 'pipe_vert': return `/HMISymbols/Pipes/Pipes Large/Pipe ${color} Vert.png`;
+    case 'elbow_br': return `/HMISymbols/Elbows/Elbows Large/Elbow ${color} BottomRight.png`;
+    default: return null;
+  }
+};
 
+// ─── Native SVG Fallbacks (For non-image components) ───────────────
+const SCADA_SVG_PATHS = {
+  scadavis_symbol: 'M 10,90 L 10,50 L 30,30 L 30,50 L 50,30 L 50,50 L 70,30 L 70,50 L 90,30 L 90,90 Z M 75,30 L 75,10 L 85,10 L 85,30 M 55,40 L 55,15 L 60,15 L 60,35 M 40,90 L 40,65 L 60,65 L 60,90 Z',
+  breaker_symbol: 'M 30,5 L 30,25 M 70,5 L 70,25 M 20,25 L 80,25 L 80,75 L 20,75 Z M 30,75 L 30,95 M 70,75 L 70,95 M 20,40 L 80,40 M 20,50 L 80,50 M 20,60 L 80,60 M 45,35 m 0,0 a 5,5 0 1,0 10,0 a 5,5 0 1,0 -10,0',
+  disconnector_symbol: 'M 50,5 L 50,20 M 40,20 L 60,20 L 60,30 L 40,30 Z M 50,80 L 50,95 M 40,70 L 60,70 L 60,80 L 40,80 Z M 50,70 L 75,35 M 70,30 m 0,0 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0 M 50,70 m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0',
+  ground_symbol: 'M 50,10 L 50,50 M 20,50 L 80,50 M 35,65 L 65,65 M 45,80 L 55,80'
+};
+
+// ─── Custom UI Icons ───────────────
+const ScadaIcons = {
+  Facility: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.scadavis_symbol} fill={color} stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>,
+  Breaker: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.breaker_symbol} fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" /></svg>,
+  Disconnector: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.disconnector_symbol} fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" /></svg>,
+  Ground: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.ground_symbol} fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" /></svg>,
+  Gauge: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="6"/><path d="M 20 80 A 40 40 0 0 1 80 80" fill="none" stroke={color} strokeWidth="8"/><line x1="50" y1="50" x2="30" y2="30" stroke="currentColor" strokeWidth="4" strokeLinecap="round"/><circle cx="50" cy="50" r="6" fill="currentColor"/></svg>,
+  Toggle: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="10" y="30" width="80" height="40" rx="20" fill="none" stroke="currentColor" strokeWidth="6"/><circle cx="30" cy="50" r="12" fill={color}/></svg>,
+  Slider: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="40" y="10" width="20" height="80" rx="10" fill="none" stroke="currentColor" strokeWidth="6"/><rect x="30" y="40" width="40" height="20" rx="4" fill={color}/></svg>,
+  LCD: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="10" y="25" width="80" height="50" rx="5" fill="none" stroke="currentColor" strokeWidth="6"/><text x="50" y="60" fill={color} fontSize="35" fontFamily="monospace" textAnchor="middle" fontWeight="bold">0.0</text></svg>,
+  Temp: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="35" y="10" width="30" height="60" rx="15" fill="none" stroke="currentColor" strokeWidth="6"/><circle cx="50" cy="75" r="20" fill="none" stroke="currentColor" strokeWidth="6"/><circle cx="50" cy="75" r="10" fill={color}/><line x1="50" y1="75" x2="50" y2="40" stroke={color} strokeWidth="8" strokeLinecap="round"/></svg>,
+  LED: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="6"/><circle cx="50" cy="50" r="25" fill={color}/></svg>,
+  Battery: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="15" y="25" width="60" height="50" rx="5" fill="none" stroke="currentColor" strokeWidth="6"/><rect x="75" y="40" width="10" height="20" fill="currentColor"/><rect x="25" y="35" width="40" height="30" fill={color}/></svg>,
+  Alert: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><polygon points="50,10 90,85 10,85" fill="none" stroke={color} strokeWidth="8" strokeLinejoin="round"/><line x1="50" y1="35" x2="50" y2="60" stroke={color} strokeWidth="6" strokeLinecap="round"/><circle cx="50" cy="75" r="4" fill={color}/></svg>,
+  Text: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><text x="50" y="70" fill="currentColor" fontSize="70" fontFamily="sans-serif" textAnchor="middle" fontWeight="bold">A</text></svg>,
+  Progress: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="10" y="35" width="80" height="30" rx="5" fill="none" stroke="currentColor" strokeWidth="6"/><rect x="15" y="40" width="50" height="20" fill={color}/></svg>,
+  LineChart: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><polyline points="10,90 30,50 60,60 90,20" fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/><polyline points="10,10 10,90 90,90" fill="none" stroke="currentColor" strokeWidth="6"/></svg>,
+  BarChart: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="20" y="50" width="15" height="40" fill={color}/><rect x="45" y="20" width="15" height="70" fill={color}/><rect x="70" y="60" width="15" height="30" fill={color}/><polyline points="10,10 10,90 90,90" fill="none" stroke="currentColor" strokeWidth="6"/></svg>,
+  DevicePLC: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><rect x="10" y="20" width="80" height="60" rx="5" fill="none" stroke="currentColor" strokeWidth="6"/><line x1="30" y1="20" x2="30" y2="80" stroke="currentColor" strokeWidth="6"/><circle cx="20" cy="35" r="5" fill={color}/><circle cx="20" cy="50" r="5" fill={color}/><circle cx="20" cy="65" r="5" fill={color}/><rect x="45" y="35" width="30" height="10" fill="none" stroke="currentColor" strokeWidth="4"/><rect x="45" y="55" width="30" height="10" fill="none" stroke="currentColor" strokeWidth="4"/></svg>,
+  DatabaseTag: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><ellipse cx="50" cy="25" rx="35" ry="15" fill="none" stroke={color} strokeWidth="6"/><path d="M 15 25 L 15 75 A 35 15 0 0 0 85 75 L 85 25" fill="none" stroke={color} strokeWidth="6"/><path d="M 15 50 A 35 15 0 0 0 85 50" fill="none" stroke={color} strokeWidth="6"/></svg>,
+  LayersHMI: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><polygon points="50,15 90,35 50,55 10,35" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/><polygon points="10,55 50,75 90,55" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/><polygon points="10,75 50,95 90,75" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/></svg>
+};
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 export const DesignerCanvas = () => {
@@ -49,15 +92,10 @@ export const DesignerCanvas = () => {
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0 });
 
-  useEffect(() => {
-    setCanvasBg(isDarkMode ? '#0B0F19' : '#EEF2F6');
-  }, [isDarkMode]);
-
+  useEffect(() => { setCanvasBg(isDarkMode ? '#0B0F19' : '#EEF2F6'); }, [isDarkMode]);
   useEffect(() => { isPanModeRef.current = isPanMode; }, [isPanMode]);
 
   const selectedCell = selectedCellId ? graphRef.current.getCell(selectedCellId) : null;
-
-  // ── Total nodes & links ──────────────────────────────────────────────────
   const totalNodes = cellData.filter(c => c.isNode).length;
   const totalLinks = cellData.filter(c => c.isLink).length;
 
@@ -82,9 +120,7 @@ export const DesignerCanvas = () => {
       drawGrid: gridVisible ? { name: 'dot', args: { color: gridColor, thickness: 1.5 } } : false,
       interactive: !isSimulating,
       defaultLink: () => new joint.shapes.standard.Link({
-        attrs: {
-          line: { stroke: isDarkMode ? '#3B82F6' : '#2563EB', strokeWidth: 2, targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' } }
-        }
+        attrs: { line: { stroke: isDarkMode ? '#3B82F6' : '#2563EB', strokeWidth: 2, targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' } } }
       }),
       defaultRouter: { name: 'orthogonal', args: { padding: 10 } },
       defaultConnector: { name: 'rounded', args: { radius: 8 } },
@@ -140,23 +176,21 @@ export const DesignerCanvas = () => {
     const syncData = () => {
       const mapped = graph.getCells().map(c => {
         const d = c.toJSON();
-        if (d.type === 'standard.Rectangle') {
+        if (d.type === 'standard.Rectangle' || d.type === 'standard.Path' || d.type === 'standard.Image') {
           return { id: d.id, ...d.data, position: d.position, size: d.size, angle: d.angle || c.angle() || 0, isNode: true };
         }
         return { id: d.id, isLink: true, source: d.source, target: d.target, ...d.data };
       });
       setCellData(mapped);
     };
-    graph.on('add remove change:position change:size change:angle change:source change:target change:data', syncData);
-    return () => graph.off('add remove change:position change:size change:angle change:source change:target change:data', syncData);
+    graph.on('add remove change:position change:size change:angle change:source change:target change:data change:attrs', syncData);
+    return () => graph.off('add remove change:position change:size change:angle change:source change:target change:data change:attrs', syncData);
   }, []);
 
-  // ── Zoom controls ────────────────────────────────────────────────────────
   const zoomIn = () => { if (paperRef.current) { const s = paperRef.current.scale(); paperRef.current.scale(Math.min(s.sx * 1.2, 4)); } };
   const zoomOut = () => { if (paperRef.current) { const s = paperRef.current.scale(); paperRef.current.scale(Math.max(s.sx / 1.2, 0.2)); } };
   const zoomFit = () => { if (paperRef.current) { paperRef.current.scaleContentToFit({ padding: 40 }); } };
 
-  // ── Save / Load / Export ─────────────────────────────────────────────────
   const saveGraph = () => {
     const json = JSON.stringify(graphRef.current.toJSON());
     setSavedGraph(json);
@@ -175,12 +209,8 @@ export const DesignerCanvas = () => {
     URL.revokeObjectURL(url);
   };
 
-  // ── Clear canvas ─────────────────────────────────────────────────────────
-  const resetCanvas = () => {
-    if (window.confirm("Clear the entire canvas?")) { graphRef.current.clear(); setSelectedCellId(null); }
-  };
+  const resetCanvas = () => { if (window.confirm("Clear the entire canvas?")) { graphRef.current.clear(); setSelectedCellId(null); } };
 
-  // ── Drop handler ─────────────────────────────────────────────────────────
   const onDrop = (e) => {
     e.preventDefault();
     if (isSimulating || !canvasRef.current) return;
@@ -197,60 +227,115 @@ export const DesignerCanvas = () => {
 
   const addNodeToGraph = (data, x, y) => {
     const graph = graphRef.current;
+    
+    // Updated default sizes to match realistic P&ID component dimensions
     const defaultSizes = {
       'tagNode': { w: 180, h: 80 }, 'line_chart': { w: 400, h: 250 }, 'bar_chart': { w: 400, h: 250 },
-      'tank_level': { w: 140, h: 200 }, 'battery_level': { w: 160, h: 120 }, 'gauge_dial': { w: 140, h: 140 },
-      'valve_control': { w: 100, h: 100 }, 'progress_bar': { w: 220, h: 100 }, 'alert_banner': { w: 260, h: 80 },
-      'status_led': { w: 120, h: 100 }, 'motor_status': { w: 120, h: 120 }, 'value_control': { w: 160, h: 100 },
+      'tank_level': { w: 120, h: 180 }, 'battery_level': { w: 160, h: 120 }, 'gauge_dial': { w: 140, h: 140 },
+      'valve_control': { w: 80, h: 80 }, 'progress_bar': { w: 220, h: 100 }, 'alert_banner': { w: 260, h: 80 },
+      'status_led': { w: 120, h: 100 }, 'motor_status': { w: 140, h: 100 }, 'value_control': { w: 160, h: 100 },
       'digital_readout': { w: 140, h: 80 }, 'temp_display': { w: 140, h: 100 }, 'toggle_switch': { w: 160, h: 80 },
-      'header_text': { w: 300, h: 50 },
+      'header_text': { w: 300, h: 50 }, 'scadavis_symbol': { w: 120, h: 100 },
+      'breaker_symbol': { w: 60, h: 90 }, 'disconnector_symbol': { w: 60, h: 90 }, 'ground_symbol': { w: 60, h: 70 },
+      'pipe_horz': { w: 150, h: 40 }, 'pipe_vert': { w: 40, h: 150 }, 'elbow_br': { w: 80, h: 80 }
     };
     const size = defaultSizes[data.t] || { w: 120, h: 80 };
+    
     const portMarkup = [{ tagName: 'circle', selector: 'portBody', attributes: { r: 6, fill: '#3B82F6', stroke: '#ffffff', strokeWidth: 2, cursor: 'crosshair' } }];
-    const element = new joint.shapes.standard.Rectangle({
-      id: uuidv4(),
-      position: { x, y },
-      size: { width: size.w, height: size.h },
-      attrs: { body: { fill: 'transparent', stroke: 'transparent', strokeWidth: 0, rx: 4, ry: 4 }, label: { text: '', fill: 'transparent' } },
-      ports: {
-        groups: {
-          'top': { position: 'top', markup: portMarkup, attrs: { portBody: { magnet: true } } },
-          'bottom': { position: 'bottom', markup: portMarkup, attrs: { portBody: { magnet: true } } },
-          'left': { position: 'left', markup: portMarkup, attrs: { portBody: { magnet: true } } },
-          'right': { position: 'right', markup: portMarkup, attrs: { portBody: { magnet: true } } }
-        },
-        items: [{ group: 'top' }, { group: 'bottom' }, { group: 'left' }, { group: 'right' }]
+    const portsConfig = {
+      groups: {
+        'top': { position: 'top', markup: portMarkup, attrs: { portBody: { magnet: true } } },
+        'bottom': { position: 'bottom', markup: portMarkup, attrs: { portBody: { magnet: true } } },
+        'left': { position: 'left', markup: portMarkup, attrs: { portBody: { magnet: true } } },
+        'right': { position: 'right', markup: portMarkup, attrs: { portBody: { magnet: true } } }
       },
-      data: { ...data.props, category: data.t }
-    });
+      items: [{ group: 'top' }, { group: 'bottom' }, { group: 'left' }, { group: 'right' }]
+    };
+
+    let element;
+    
+    // 1. Check if it's an Image-based Component (From the HMISymbols Folder)
+    const imgPath = getSymbolImagePath(data.t, data.props.color);
+    if (imgPath) {
+      element = new joint.shapes.standard.Image({
+        id: uuidv4(),
+        position: { x, y },
+        size: { width: size.w, height: size.h },
+        attrs: {
+          image: { 'xlink:href': imgPath, preserveAspectRatio: 'none' }, // 'none' allows you to stretch the pipes/tanks
+          label: { text: data.props.name || '', fill: isDarkMode ? '#CBD5E1' : '#1e293b', refY: '100%', refY2: 15, textAnchor: 'middle' }
+        },
+        ports: portsConfig,
+        data: { ...data.props, category: data.t }
+      });
+    } 
+    // 2. Fallback to Native SVGs (Breakers, Disconnectors, Facilities)
+    else if (SCADA_SVG_PATHS[data.t]) {
+      element = new joint.shapes.standard.Path({
+        id: uuidv4(),
+        position: { x, y },
+        size: { width: size.w, height: size.h },
+        attrs: { 
+          body: { 
+            d: SCADA_SVG_PATHS[data.t], 
+            fill: data.props.color || 'transparent', 
+            stroke: data.props.stroke || (isDarkMode ? '#CBD5E1' : '#1e293b'), 
+            strokeWidth: 2.5, 
+            strokeLinejoin: 'round',
+            strokeLinecap: 'round',
+            vectorEffect: 'non-scaling-stroke' 
+          }, 
+          label: { text: data.props.name || '', fill: isDarkMode ? '#CBD5E1' : '#1e293b', refY: '100%', refY2: 15, textAnchor: 'middle' } 
+        },
+        ports: portsConfig,
+        data: { ...data.props, category: data.t }
+      });
+      if (['scadavis_symbol'].includes(data.t)) {
+         element.attr('body/fill', data.props.color || '#3B82F6');
+      }
+    } 
+    // 3. Invisible Rectangles for Overlays (Dashboards, Switches)
+    else {
+      element = new joint.shapes.standard.Rectangle({
+        id: uuidv4(),
+        position: { x, y },
+        size: { width: size.w, height: size.h },
+        attrs: { body: { fill: 'transparent', stroke: 'transparent', strokeWidth: 0, rx: 4, ry: 4 }, label: { text: '', fill: 'transparent' } },
+        ports: portsConfig,
+        data: { ...data.props, category: data.t }
+      });
+    }
+    
     graph.addCell(element);
     setSelectedCellId(element.id);
   };
 
-  // ── Build Custom Node Handler ────────────────────────────────────────────
-  const handleCreateCustomNode = ({ name, template, color, unit }) => {
-    addNodeToGraph({ t: template, props: { name, color, unit } }, 200, 200);
-  };
+  const handleCreateCustomNode = ({ name, template, color, unit }) => { addNodeToGraph({ t: template, props: { name, color, unit } }, 200, 200); };
+  const handleAddDevice = (newDev) => { setDevices(prev => prev.map(cat => cat.category === newDev.category ? { ...cat, devices: [...cat.devices, newDev] } : cat)); };
 
-  // ── Add Device Handler ───────────────────────────────────────────────────
-  const handleAddDevice = (newDev) => {
-    setDevices(prev => prev.map(cat =>
-      cat.category === newDev.category
-        ? { ...cat, devices: [...cat.devices, newDev] }
-        : cat
-    ));
-  };
-
-  // ── Inspector update helpers ─────────────────────────────────────────────
   const updateSelectedCell = (prop, value) => {
     if (!selectedCell) return;
     const data = selectedCell.get('data') || {};
     selectedCell.set('data', { ...data, [prop]: value });
+    
+    if (prop === 'color') {
+      // Magically swap the PNG image when the color is changed in the Inspector
+      if (selectedCell.attributes.type === 'standard.Image') {
+        const newImg = getSymbolImagePath(selectedCell.get('data').category, value);
+        if (newImg) {
+          selectedCell.attr('image/xlink:href', newImg);
+        }
+      } 
+      // Update SVG strokes
+      else if (selectedCell.attributes.type === 'standard.Path') {
+        selectedCell.attr('body/stroke', value); 
+      }
+    }
   };
+
   const updateSelectedCellSize = (w, h) => { if (selectedCell && !selectedCell.isLink()) selectedCell.resize(w, h); };
   const deleteSelected = () => { if (selectedCell) { selectedCell.remove(); setSelectedCellId(null); } };
 
-  // ── Tag grouping ─────────────────────────────────────────────────────────
   const groupedTags = useMemo(() => {
     const groups = {};
     Object.keys(tags).forEach(key => {
@@ -265,34 +350,44 @@ export const DesignerCanvas = () => {
 
   const tagOptions = useMemo(() => Object.keys(tags).map(key => ({ label: key, value: key })), [tags]);
 
-  // ── Toolbox definition ───────────────────────────────────────────────────
+  // ── Fully Customized Toolbox definition ────────────────────────────────────
   const toolbox = [
     { cat: "Industrial Nodes", items: [
-      { t: "tank_level", l: "Liquid Tank", i: Cylinder, props: { name: "New Tank", color: "#3B82F6", unit: "%" } },
-      { t: "motor_status", l: "Motor/Fan", i: Fan, props: { name: "Exhaust Fan", color: "#f59e0b" } },
-      { t: "valve_control", l: "Control Valve", i: ToggleRight, props: { name: "Main Valve", val: false } },
-      { t: "progress_bar", l: "Progress Bar", i: AlignLeft, props: { name: "Progress", color: "#8b5cf6", unit: "U" } },
+      { t: "tank_level", l: "Storage Silo", i: ScadaIcons.Facility, props: { name: "Silo 01", color: "#3B82F6", unit: "%" } },
+      { t: "motor_status", l: "Feed Pump", i: ScadaIcons.Facility, props: { name: "Pump A", color: "#3B82F6" } },
+      { t: "valve_control", l: "Ctrl Valve", i: ScadaIcons.Facility, props: { name: "Valve", color: "#EF4444", val: false } },
+      { t: "progress_bar", l: "Cap. Bar", i: ScadaIcons.Progress, props: { name: "Capacity", color: "#8b5cf6", unit: "U" } },
+      { t: "scadavis_symbol", l: "Facility", i: ScadaIcons.Facility, props: { name: "Plant A", color: "#64748b" } }, 
+    ]},
+    { cat: "Piping & Routing", items: [
+      { t: "pipe_horz", l: "Horz Pipe", i: ScadaIcons.Facility, props: { name: "Pipe", color: "#3B82F6" } },
+      { t: "pipe_vert", l: "Vert Pipe", i: ScadaIcons.Facility, props: { name: "Pipe", color: "#3B82F6" } },
+      { t: "elbow_br", l: "Elbow", i: ScadaIcons.Facility, props: { name: "Elbow", color: "#3B82F6" } },
+    ]},
+    { cat: "Electrical Substation", items: [
+      { t: "breaker_symbol", l: "Breaker", i: ScadaIcons.Breaker, props: { name: "CB-01", color: "#EF4444" } },
+      { t: "disconnector_symbol", l: "Disconnect", i: ScadaIcons.Disconnector, props: { name: "DS-01", color: "#F59E0B" } },
+      { t: "ground_symbol", l: "Ground", i: ScadaIcons.Ground, props: { name: "GND", color: "#22C55E" } },
     ]},
     { cat: "Controls & Displays", items: [
-      { t: "toggle_switch", l: "Toggle Switch", i: Power, props: { name: "Switch", val: false } },
-      { t: "value_control", l: "Value Adjuster", i: SlidersHorizontal, props: { name: "Setpoint", val: 0 } },
-      { t: "gauge_dial", l: "Analog Gauge", i: Gauge, props: { name: "Pressure", unit: "PSI" } },
-      { t: "digital_readout", l: "LCD Display", i: Hash, props: { name: "Live Data", color: "#10b981", unit: "" } },
-      { t: "temp_display", l: "Numeric Val", i: Thermometer, props: { name: "Display", color: "#3B82F6", unit: "°C" } }
+      { t: "toggle_switch", l: "Switch", i: ScadaIcons.Toggle, props: { name: "Switch", val: false } },
+      { t: "value_control", l: "Adjuster", i: ScadaIcons.Slider, props: { name: "Setpoint", val: 0 } },
+      { t: "gauge_dial", l: "Analog Dial", i: ScadaIcons.Gauge, props: { name: "Pressure", color: "#3B82F6", unit: "PSI" } },
+      { t: "digital_readout", l: "LCD Display", i: ScadaIcons.LCD, props: { name: "Live Data", color: "#10b981", unit: "" } },
+      { t: "temp_display", l: "Numeric", i: ScadaIcons.Temp, props: { name: "Display", color: "#3B82F6", unit: "°C" } }
     ]},
     { cat: "Status & Alerts", items: [
-      { t: "status_led", l: "Status LED", i: CircleDot, props: { name: "Status Indicator", val: false, color: "#10b981" } },
-      { t: "battery_level", l: "Battery Bank", i: Battery, props: { name: "Storage Bank", val: 100 } },
-      { t: "alert_banner", l: "Alert Banner", i: AlertTriangle, props: { name: "System Warning", val: false } },
-      { t: "header_text", l: "Header Text", i: Type, props: { name: "System Area", color: "#cbd5e1" } }
+      { t: "status_led", l: "Status LED", i: ScadaIcons.LED, props: { name: "Indicator", val: false, color: "#10b981" } },
+      { t: "battery_level", l: "Battery", i: ScadaIcons.Battery, props: { name: "Bank", val: 100 } },
+      { t: "alert_banner", l: "Warning", i: ScadaIcons.Alert, props: { name: "System Warning", val: false } },
+      { t: "header_text", l: "Header", i: ScadaIcons.Text, props: { name: "Area Label", color: "#cbd5e1" } }
     ]},
     { cat: "Analytics", items: [
-      { t: "line_chart", l: "Line Chart", i: LineChartIcon, props: { name: "Trend View", color: "#3B82F6" } },
-      { t: "bar_chart", l: "Bar Chart", i: BarChart3, props: { name: "Volume Bar", color: "#8b5cf6" } }
+      { t: "line_chart", l: "Trend View", i: ScadaIcons.LineChart, props: { name: "History", color: "#3B82F6" } },
+      { t: "bar_chart", l: "Volume Bar", i: ScadaIcons.BarChart, props: { name: "Volume", color: "#8b5cf6" } }
     ]}
   ];
 
-  // ── Shared style tokens ──────────────────────────────────────────────────
   const panelStyle = { backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)' };
   const inputSt = { backgroundColor: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11 };
 
@@ -306,11 +401,9 @@ export const DesignerCanvas = () => {
 
   return (
     <div className="w-full flex-1 min-h-0 flex flex-col theme-transition" style={{ backgroundColor: 'var(--bg-main)' }}>
-      
-      {/* ── Sub-header / Tab Bar ──────────────────────────────────────────── */}
       <div className="flex shrink-0 theme-transition" style={{ backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border)' }}>
         
-        {/* Left sidebar tabs */}
+        {/* LEFT TAB NAVIGATION - USING CUSTOM SVGS */}
         {!isSimulating && (
           <div className="flex" style={{ width: 320, borderRight: '1px solid var(--border)' }}>
             <button
@@ -320,7 +413,7 @@ export const DesignerCanvas = () => {
                 ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` }
                 : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}
             >
-              <Database size={13} /> Explorer
+              <ScadaIcons.DatabaseTag size={16} color="currentColor" /> Explorer
             </button>
             <button
               onClick={() => setActiveTab('nodes')}
@@ -329,18 +422,15 @@ export const DesignerCanvas = () => {
                 ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` }
                 : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}
             >
-              <Layers size={13} /> Nodes
+              <ScadaIcons.LayersHMI size={16} color="currentColor" /> Nodes
             </button>
           </div>
         )}
 
-        {/* Canvas title + toolbar */}
         <div className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto">
-          <span className="text-sm font-bold mr-4 shrink-0" style={{ color: 'var(--accent)' }}>
-            Plant Layout Overview
-          </span>
+          <span className="text-sm font-bold mr-4 shrink-0" style={{ color: 'var(--accent)' }}>Plant Layout Overview</span>
 
-          {/* Undo/Redo/Cut/Copy/Paste */}
+          {/* Standard Canvas Tools */}
           <button style={toolbarBtn(false)} title="Undo"><Undo2 size={14} /></button>
           <button style={toolbarBtn(false)} title="Redo"><Redo2 size={14} /></button>
           <div className="w-px h-5 mx-1 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
@@ -350,33 +440,18 @@ export const DesignerCanvas = () => {
           <button style={toolbarBtn(isPanMode, '#22C55E')} onClick={() => setIsPanMode(!isPanMode)} title="Pan Mode"><Hand size={14} /></button>
           <div className="w-px h-5 mx-1 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
 
-          {/* Grid & Snap */}
-          <button style={toolbarBtn(gridVisible)} onClick={() => setGridVisible(!gridVisible)} title="Toggle Grid">
-            <Grid size={14} />
-          </button>
-          <button style={toolbarBtn(snapEnabled, '#F59E0B')} onClick={() => setSnapEnabled(!snapEnabled)} title="Snap to Grid">
-            <Magnet size={14} />
-          </button>
+          <button style={toolbarBtn(gridVisible)} onClick={() => setGridVisible(!gridVisible)} title="Toggle Grid"><Grid size={14} /></button>
+          <button style={toolbarBtn(snapEnabled, '#F59E0B')} onClick={() => setSnapEnabled(!snapEnabled)} title="Snap to Grid"><Magnet size={14} /></button>
           <div className="w-px h-5 mx-1 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
 
-          {/* Save/Load/Export */}
-          <button style={toolbarBtn(false)} onClick={saveGraph} title="Save Layout" className="flex gap-1.5">
-            <Save size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: 'var(--status-ok)' }}>Save</span>
-          </button>
-          <button style={toolbarBtn(false)} onClick={loadGraph} title="Load Layout" className="flex gap-1.5">
-            <FolderOpen size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)' }}>Load</span>
-          </button>
-          <button style={toolbarBtn(false)} onClick={exportGraph} title="Export JSON" className="flex gap-1.5">
-            <FileDown size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: '#06B6D4' }}>Export</span>
-          </button>
+          <button style={toolbarBtn(false)} onClick={saveGraph} title="Save Layout" className="flex gap-1.5"><Save size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: 'var(--status-ok)' }}>Save</span></button>
+          <button style={toolbarBtn(false)} onClick={loadGraph} title="Load Layout" className="flex gap-1.5"><FolderOpen size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)' }}>Load</span></button>
+          <button style={toolbarBtn(false)} onClick={exportGraph} title="Export JSON" className="flex gap-1.5"><FileDown size={13} /><span className="text-[10px] font-bold uppercase" style={{ color: '#06B6D4' }}>Export</span></button>
 
           <div className="w-px h-5 mx-1 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
-          <button style={{ ...toolbarBtn(false), color: '#EF4444' }} onClick={resetCanvas} title="Clear Canvas" className="flex gap-1.5">
-            <Trash2 size={13} /><span className="text-[10px] font-bold uppercase">Clear</span>
-          </button>
+          <button style={{ ...toolbarBtn(false), color: '#EF4444' }} onClick={resetCanvas} title="Clear Canvas" className="flex gap-1.5"><Trash2 size={13} /><span className="text-[10px] font-bold uppercase">Clear</span></button>
         </div>
 
-        {/* Right panel label */}
         {!isSimulating && (
           <div className="flex items-center gap-2 px-4 shrink-0" style={{ width: 300, borderLeft: '1px solid var(--border)' }}>
             <Settings size={14} style={{ color: 'var(--accent)' }} />
@@ -385,10 +460,7 @@ export const DesignerCanvas = () => {
         )}
       </div>
 
-      {/* ── Main 3-column layout ──────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
-
-        {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
         {!isSimulating && (
           <div className="overflow-y-auto custom-scrollbar shrink-0 flex flex-col min-h-0 theme-transition"
             style={{ width: 320, backgroundColor: 'var(--bg-panel)', borderRight: '1px solid var(--border)' }}>
@@ -396,48 +468,26 @@ export const DesignerCanvas = () => {
             {/* EXPLORER TAB */}
             {activeTab === 'explorer' && (
               <div className="flex flex-col gap-0 p-0">
-                {/* Actions row */}
                 <div className="flex gap-2 p-3 border-b" style={{ borderColor: 'var(--border)' }}>
-                  <button
-                    onClick={() => setShowAddDevice(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"
-                    style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                  ><Plus size={12} /> Tag</button>
-                  <button
-                    onClick={() => setShowAddDevice(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"
-                    style={{ backgroundColor: 'rgba(37,99,235,0.15)', color: 'var(--accent)', border: '1px solid rgba(37,99,235,0.3)' }}
-                  ><Plus size={12} /> Device</button>
+                  <button onClick={() => setShowAddDevice(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors" style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}><Plus size={12} /> Tag</button>
+                  <button onClick={() => setShowAddDevice(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors" style={{ backgroundColor: 'rgba(37,99,235,0.15)', color: 'var(--accent)', border: '1px solid rgba(37,99,235,0.3)' }}><Plus size={12} /> Device</button>
                 </div>
 
-                {/* Device categories */}
                 {devices.map((cat, i) => {
                   const isCollapsed = collapsedCategories[cat.category];
                   return (
                     <div key={i} className="border-b" style={{ borderColor: 'var(--border)' }}>
-                      {/* Category header */}
-                      <button
-                        className="w-full flex items-center gap-2 px-4 py-2.5 text-left"
-                        onClick={() => setCollapsedCategories(p => ({ ...p, [cat.category]: !p[cat.category] }))}
-                      >
+                      <button className="w-full flex items-center gap-2 px-4 py-2.5 text-left" onClick={() => setCollapsedCategories(p => ({ ...p, [cat.category]: !p[cat.category] }))}>
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: 'var(--accent)' }} />
                         <span className="text-[10px] font-bold uppercase tracking-widest flex-1" style={{ color: 'var(--text-secondary)' }}>{cat.category}</span>
                         {isCollapsed ? <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={12} style={{ color: 'var(--text-muted)' }} />}
                       </button>
 
-                      {/* Device cards */}
                       {!isCollapsed && cat.devices.map(dev => {
-                        const DevIcon = ICON_MAP[dev.iconKey] || Activity;
                         return (
                           <div key={dev.id} className="mx-3 mb-2 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                            {/* Device header */}
-                            <div
-                              draggable
-                              onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { name: dev.name } }))}
-                              className="flex items-center gap-3 p-3 cursor-grab"
-                              style={{ backgroundColor: 'var(--bg-subtle)' }}
-                            >
-                              <DevIcon size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                            <div draggable onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { name: dev.name } }))} className="flex items-center gap-3 p-3 cursor-grab" style={{ backgroundColor: 'var(--bg-subtle)' }}>
+                              <div className="shrink-0"><ScadaIcons.DevicePLC size={24} color="var(--accent)" /></div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>{dev.name}</div>
                                 {dev.location && <div className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--text-muted)' }}>{dev.location}</div>}
@@ -445,15 +495,8 @@ export const DesignerCanvas = () => {
                               <button className="p-1 rounded opacity-60 hover:opacity-100 shrink-0"><Pencil size={11} style={{ color: 'var(--text-secondary)' }} /></button>
                             </div>
 
-                            {/* Device tags/props */}
                             {dev.props && dev.props.map((prop, pi) => (
-                              <div
-                                key={pi}
-                                draggable
-                                onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { tagKey: prop.key, name: prop.name } }))}
-                                className="flex items-center justify-between px-4 py-2 cursor-grab border-t"
-                                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-panel)' }}
-                              >
+                              <div key={pi} draggable onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { tagKey: prop.key, name: prop.name } }))} className="flex items-center justify-between px-4 py-2 cursor-grab border-t" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-panel)' }}>
                                 <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>{prop.name}</span>
                                 <TagBadge type={prop.type} />
                               </div>
@@ -464,53 +507,16 @@ export const DesignerCanvas = () => {
                     </div>
                   );
                 })}
-
-                {/* Raw Tags section */}
-                <div className="p-3 pb-8">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#F59E0B' }} />
-                    <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>Raw Tags</span>
-                  </div>
-                  <div className="relative mb-3">
-                    <Search size={12} className="absolute left-2.5 top-2.5" style={{ color: 'var(--text-muted)' }} />
-                    <input type="text" placeholder="Filter..." value={tagSearchQuery} onChange={e => setTagSearchQuery(e.target.value)}
-                      style={{ ...inputSt, paddingLeft: 28, width: '100%' }} />
-                  </div>
-                  {Object.entries(groupedTags).map(([prefix, keys]) => (
-                    <div key={prefix} className="mb-2 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                      <div className="px-3 py-1.5" style={{ backgroundColor: 'var(--bg-subtle)' }}>
-                        <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{prefix}</span>
-                      </div>
-                      {keys.map(key => (
-                        <div key={key} draggable
-                          onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { tagKey: key } }))}
-                          className="flex items-center justify-between px-3 py-2 cursor-grab border-t"
-                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-panel)' }}>
-                          <span className="text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>{key.split('/')[1]}</span>
-                          <TagBadge type={tags[key].type} />
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
 
             {/* NODES TAB */}
             {activeTab === 'nodes' && (
               <div className="p-3 flex flex-col gap-4">
-                {/* Build custom node button */}
-                <button
-                  onClick={() => setShowBuildModal(true)}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors"
-                  style={{ background: 'linear-gradient(135deg, var(--accent), #8B5CF6)', color: '#FFFFFF', border: 'none' }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-                >
+                <button onClick={() => setShowBuildModal(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors" style={{ background: 'linear-gradient(135deg, var(--accent), #8B5CF6)', color: '#FFFFFF', border: 'none' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.9'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                   <Wrench size={14} /> Build Custom Node
                 </button>
 
-                {/* Toolbox groups */}
                 {toolbox.map(group => (
                   <div key={group.cat}>
                     <div className="flex items-center gap-2 mb-2">
@@ -519,16 +525,12 @@ export const DesignerCanvas = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {group.items.map(tool => {
-                        const Icon = tool.i;
+                        const CustomIcon = tool.i;
                         return (
-                          <div
-                            key={tool.t}
-                            draggable
-                            onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: tool.t, props: tool.props }))}
-                            className="flex flex-col items-center gap-2 p-3 rounded-xl border cursor-grab text-center transition-all hover:opacity-80"
-                            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
-                          >
-                            <Icon size={20} style={{ color: 'var(--text-secondary)' }} />
+                          <div key={tool.t} draggable onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: tool.t, props: tool.props }))} 
+                            className="flex flex-col items-center gap-2 p-3 rounded-xl border cursor-grab text-center transition-all hover:opacity-80" 
+                            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}>
+                            <CustomIcon size={32} color={tool.props.color || 'var(--text-secondary)'} />
                             <span className="text-[9px] font-bold" style={{ color: 'var(--text-secondary)' }}>{tool.l}</span>
                           </div>
                         );
@@ -541,66 +543,31 @@ export const DesignerCanvas = () => {
           </div>
         )}
 
-        {/* ── CANVAS ───────────────────────────────────────────────────────── */}
-        <div className="flex-1 relative flex flex-col transition-colors" style={{ backgroundColor: canvasBg, cursor: isPanMode ? 'grab' : 'default' }}
-          onDrop={onDrop} onDragOver={e => e.preventDefault()}>
+        <div className="flex-1 relative flex flex-col transition-colors" style={{ backgroundColor: canvasBg, cursor: isPanMode ? 'grab' : 'default' }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
           <div ref={canvasRef} className="absolute inset-0 z-0 overflow-hidden" />
-
-          {/* Widget overlays */}
           <ReactWidgetOverlays graph={graphRef.current} nodes={cellData.filter(c => c.isNode)} history={history} selectedCellId={selectedCellId} paperRef={paperRef} />
-
-          {/* Minimap */}
           {!isSimulating && <Minimap graph={graphRef.current} isDarkMode={isDarkMode} />}
 
-          {/* Zoom controls – bottom right */}
           <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1">
-            {[
-              { icon: ZoomIn, fn: zoomIn, title: 'Zoom In' },
-              { icon: ZoomOut, fn: zoomOut, title: 'Zoom Out' },
-              { icon: Maximize2, fn: zoomFit, title: 'Fit to View' },
-            ].map(({ icon: Icon, fn, title }) => (
-              <button key={title} onClick={fn} title={title}
-                className="w-9 h-9 flex items-center justify-center rounded-lg shadow-lg transition-colors theme-transition"
-                style={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--bg-panel)'}
-              >
-                <Icon size={16} />
-              </button>
+            {[{ icon: ZoomIn, fn: zoomIn, title: 'Zoom In' }, { icon: ZoomOut, fn: zoomOut, title: 'Zoom Out' }, { icon: Maximize2, fn: zoomFit, title: 'Fit to View' }].map(({ icon: Icon, fn, title }) => (
+              <button key={title} onClick={fn} title={title} className="w-9 h-9 flex items-center justify-center rounded-lg shadow-lg transition-colors theme-transition" style={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--bg-panel)'}><Icon size={16} /></button>
             ))}
           </div>
         </div>
 
-        {/* ── RIGHT INSPECTOR ────────────────────────────────────────────── */}
         {!isSimulating && (
-          <div className="overflow-y-auto custom-scrollbar p-4 flex flex-col gap-4 shrink-0 theme-transition"
-            style={{ width: 300, backgroundColor: 'var(--bg-panel)', borderLeft: '1px solid var(--border)' }}>
-
+          <div className="overflow-y-auto custom-scrollbar p-4 flex flex-col gap-4 shrink-0 theme-transition" style={{ width: 300, backgroundColor: 'var(--bg-panel)', borderLeft: '1px solid var(--border)' }}>
             {selectedCell && selectedCell.isLink() ? (
               <div className="text-sm text-center py-8" style={{ color: 'var(--text-secondary)' }}>Link selected — no properties</div>
             ) : selectedCell ? (
               <div className="flex flex-col gap-4">
-                {/* Tag Binding */}
-                {selectedCell.get('data')?.category !== 'tagNode' && selectedCell.get('data')?.category !== 'header_text' && (
-                  <div className="p-4 rounded-xl border border-l-4 theme-transition"
-                    style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: 'var(--accent)' }}>
-                    <div className="text-[9px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2" style={{ color: 'var(--accent)' }}>
-                      <Database size={11} /> Tag Binding
-                    </div>
+                {selectedCell.get('data')?.category !== 'tagNode' && selectedCell.get('data')?.category !== 'header_text' && !['pipe_horz', 'pipe_vert', 'elbow_br'].includes(selectedCell.get('data')?.category) && (
+                  <div className="p-4 rounded-xl border border-l-4 theme-transition" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: 'var(--accent)' }}>
+                    <div className="text-[9px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2" style={{ color: 'var(--accent)' }}><ScadaIcons.DatabaseTag size={12} color="currentColor" /> Tag Binding</div>
                     <CustomDropdown value={selectedCell.get('data')?.boundTag || ""} options={tagOptions} onChange={v => updateSelectedCell('boundTag', v)} placeholder="-- Select Data Tag --" />
                   </div>
                 )}
-                {selectedCell.get('data')?.category === 'tagNode' && (
-                  <div className="p-4 rounded-xl border border-l-4 theme-transition"
-                    style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: '#F59E0B' }}>
-                    <div className="text-[9px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2" style={{ color: '#F59E0B' }}>
-                      <Database size={11} /> Data Source Hub
-                    </div>
-                    <CustomDropdown value={selectedCell.get('data')?.tagKey || ""} options={tagOptions} onChange={v => updateSelectedCell('tagKey', v)} placeholder="-- Select Tag --" />
-                  </div>
-                )}
-
-                {/* Node Properties */}
+                
                 <div className="p-4 rounded-xl border theme-transition" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)' }}>
                   <div className="text-[9px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-secondary)' }}>Node Properties</div>
                   <div className="flex flex-col gap-3">
@@ -613,58 +580,32 @@ export const DesignerCanvas = () => {
                       <CustomColorPicker value={selectedCell.get('data')?.color || "#3B82F6"} onChange={v => updateSelectedCell('color', v)} />
                     </div>
                   )}
-                  {selectedCell.get('data')?.category !== 'header_text' && selectedCell.get('data')?.category !== 'tagNode' && selectedCell.get('data')?.category !== 'status_led' && selectedCell.get('data')?.category !== 'toggle_switch' && selectedCell.get('data')?.category !== 'value_control' && selectedCell.get('data')?.category !== 'alert_banner' && selectedCell.get('data')?.category !== 'motor_status' && (
-                    <div className="mt-3">
-                      <label className="text-[9px] font-mono uppercase mb-2 block" style={{ color: 'var(--text-secondary)' }}>Unit Symbol</label>
-                      <input value={selectedCell.get('data')?.unit || ""} onChange={e => updateSelectedCell('unit', e.target.value)} style={{ ...inputSt, width: '100%' }} />
-                    </div>
-                  )}
                 </div>
 
-                {/* Geometry */}
                 {!selectedCell.isLink() && (
-                  <div className="p-4 rounded-xl border border-l-4 theme-transition"
-                    style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: '#8B5CF6' }}>
+                  <div className="p-4 rounded-xl border border-l-4 theme-transition" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: '#8B5CF6' }}>
                     <div className="text-[9px] font-bold uppercase tracking-widest mb-3" style={{ color: '#8B5CF6' }}>Geometry & Transform</div>
                     <div className="flex gap-2 mb-3">
                       <div className="flex-1">
                         <label className="text-[9px] block mb-1" style={{ color: 'var(--text-secondary)' }}>Width</label>
-                        <input type="number" min="10" value={selectedCell.get('size')?.width || 0}
-                          onChange={e => updateSelectedCellSize(parseInt(e.target.value) || 120, selectedCell.get('size')?.height || 80)}
-                          style={{ ...inputSt, width: '100%' }} />
+                        <input type="number" min="10" value={selectedCell.get('size')?.width || 0} onChange={e => updateSelectedCellSize(parseInt(e.target.value) || 120, selectedCell.get('size')?.height || 80)} style={{ ...inputSt, width: '100%' }} />
                       </div>
                       <div className="flex-1">
                         <label className="text-[9px] block mb-1" style={{ color: 'var(--text-secondary)' }}>Height</label>
-                        <input type="number" min="10" value={selectedCell.get('size')?.height || 0}
-                          onChange={e => updateSelectedCellSize(selectedCell.get('size')?.width || 120, parseInt(e.target.value) || 80)}
-                          style={{ ...inputSt, width: '100%' }} />
+                        <input type="number" min="10" value={selectedCell.get('size')?.height || 0} onChange={e => updateSelectedCellSize(selectedCell.get('size')?.width || 120, parseInt(e.target.value) || 80)} style={{ ...inputSt, width: '100%' }} />
                       </div>
                     </div>
-                    <label className="text-[9px] flex justify-between mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      <span>Rotation</span><span style={{ color: '#8B5CF6' }}>{selectedCell.angle() || 0}°</span>
-                    </label>
-                    <input type="range" min="0" max="359" value={selectedCell.angle() || 0} onChange={e => {
-                      const val = parseInt(e.target.value) || 0;
-                      selectedCell.rotate(val, true); selectedCell.set('angle', val);
-                    }} className="w-full accent-violet-500" />
+                    <label className="text-[9px] flex justify-between mb-1" style={{ color: 'var(--text-secondary)' }}><span>Rotation</span><span style={{ color: '#8B5CF6' }}>{selectedCell.angle() || 0}°</span></label>
+                    <input type="range" min="0" max="359" value={selectedCell.angle() || 0} onChange={e => { const val = parseInt(e.target.value) || 0; selectedCell.rotate(val, true); selectedCell.set('angle', val); }} className="w-full accent-violet-500" />
                   </div>
                 )}
 
-                <button onClick={deleteSelected}
-                  className="w-full py-2.5 rounded-xl text-xs font-bold uppercase flex justify-center gap-2 transition-colors"
-                  style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)' }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.25)'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)'}
-                ><Trash size={13} /> Delete Node</button>
+                <button onClick={deleteSelected} className="w-full py-2.5 rounded-xl text-xs font-bold uppercase flex justify-center gap-2 transition-colors" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)' }}><Trash size={13} /> Delete Node</button>
               </div>
             ) : (
-              /* No selection — Canvas properties */
               <div className="flex flex-col gap-4">
-                <div className="p-4 rounded-xl border border-l-4 theme-transition"
-                  style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: 'var(--border-strong)' }}>
-                  <div className="text-[9px] font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
-                    <Settings size={11} /> Canvas Properties
-                  </div>
+                <div className="p-4 rounded-xl border border-l-4 theme-transition" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)', borderLeftColor: 'var(--border-strong)' }}>
+                  <div className="text-[9px] font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><Settings size={11} /> Canvas Properties</div>
                   <div className="flex flex-col gap-3">
                     <div>
                       <label className="text-[9px] font-mono uppercase mb-2 block" style={{ color: 'var(--text-secondary)' }}>Background Color</label>
@@ -672,63 +613,14 @@ export const DesignerCanvas = () => {
                     </div>
                   </div>
                 </div>
-
-                {/* Stats */}
-                <div className="flex flex-col gap-2">
-                  {[
-                    { label: 'Total Nodes', value: totalNodes },
-                    { label: 'Total Links', value: totalLinks },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center justify-between p-3 rounded-lg border theme-transition"
-                      style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}>
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                      <span className="text-lg font-mono font-bold" style={{ color: 'var(--text-primary)' }}>{value}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Canvas controls guide */}
-                <div className="p-4 rounded-xl border theme-transition" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Pointer size={14} style={{ color: 'var(--text-secondary)' }} />
-                    <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>Canvas Controls</span>
-                  </div>
-                  <ul className="flex flex-col gap-2.5">
-                    {[
-                      { icon: Move, label: 'Move Node', hint: 'Drag Center' },
-                      { icon: Maximize2, label: 'Resize', hint: 'Drag Blue Handles' },
-                      { icon: LinkIcon, label: 'Connect', hint: 'Drag Ports' },
-                      { icon: Edit3, label: 'Select', hint: 'Click Node' },
-                    ].map(({ icon: Icon, label, hint }) => (
-                      <li key={label} className="flex items-center justify-between">
-                        <span className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          <Icon size={12} /> {label}
-                        </span>
-                        <kbd className="px-2 py-1 rounded text-[9px] font-mono" style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>{hint}</kbd>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Modals ─────────────────────────────────────────────────────────── */}
-      {showBuildModal && (
-        <BuildCustomNodeModal
-          isDarkMode={isDarkMode}
-          onClose={() => setShowBuildModal(false)}
-          onCreate={handleCreateCustomNode}
-        />
-      )}
-      {showAddDevice && (
-        <AddDeviceModal
-          onClose={() => setShowAddDevice(false)}
-          onAdd={handleAddDevice}
-        />
-      )}
+      {showBuildModal && <BuildCustomNodeModal isDarkMode={isDarkMode} onClose={() => setShowBuildModal(false)} onCreate={handleCreateCustomNode} />}
+      {showAddDevice && <AddDeviceModal onClose={() => setShowAddDevice(false)} onAdd={handleAddDevice} />}
     </div>
   );
 };
