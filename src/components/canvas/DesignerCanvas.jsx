@@ -2,10 +2,9 @@ import React, { useState, useRef, useContext, useEffect, useMemo } from "react";
 import * as joint from "jointjs";
 import { v4 as uuidv4 } from "uuid";
 import {
-  Link as LinkIcon, Edit3, Pointer, Trash, Settings, Trash2, Grid, Magnet,
-  Undo2, Redo2, Scissors, Copy, ClipboardPaste, Save, FolderOpen, FileDown,
-  ZoomIn, ZoomOut, Maximize2, Plus, Pencil, ChevronDown, ChevronRight,
-  Move, Hand, Wrench
+  Trash, Settings, Trash2, Grid, Magnet, Undo2, Redo2, Scissors, 
+  Copy, ClipboardPaste, Save, FolderOpen, FileDown, ZoomIn, ZoomOut, 
+  Maximize2, Plus, Pencil, ChevronDown, ChevronRight, Hand, Wrench, Activity
 } from "lucide-react";
 
 import { SCADAContext } from "../../context/SCADAContext";
@@ -13,13 +12,12 @@ import { CustomDropdown } from "../ui/CustomDropdown";
 import { CustomColorPicker } from "../ui/CustomColorPicker";
 import { ReactWidgetOverlays } from "./ReactWidgetOverlays";
 import { ResizeOverlay } from "./ResizeOverlay";
+import { ICON_MAP } from "../../constants/config";
 import Minimap from "./Minimap";
 import BuildCustomNodeModal from "../modals/BuildCustomNodeModal";
 import AddDeviceModal from "../modals/AddDeviceModal";
 import TagBadge from "../ui/TagBadge";
 
-// ─── HMI Symbols Dynamic Path Resolver ───────────────────────────────────────
-// This function maps the component type and selected hex color to your uploaded PNGs.
 const getSymbolImagePath = (type, colorHex) => {
   const cMap = {
     '#3B82F6': 'Blue', '#EF4444': 'Red', '#10B981': 'Green',
@@ -38,7 +36,6 @@ const getSymbolImagePath = (type, colorHex) => {
   }
 };
 
-// ─── Native SVG Fallbacks (For non-image components) ───────────────
 const SCADA_SVG_PATHS = {
   scadavis_symbol: 'M 10,90 L 10,50 L 30,30 L 30,50 L 50,30 L 50,50 L 70,30 L 70,50 L 90,30 L 90,90 Z M 75,30 L 75,10 L 85,10 L 85,30 M 55,40 L 55,15 L 60,15 L 60,35 M 40,90 L 40,65 L 60,65 L 60,90 Z',
   breaker_symbol: 'M 30,5 L 30,25 M 70,5 L 70,25 M 20,25 L 80,25 L 80,75 L 20,75 Z M 30,75 L 30,95 M 70,75 L 70,95 M 20,40 L 80,40 M 20,50 L 80,50 M 20,60 L 80,60 M 45,35 m 0,0 a 5,5 0 1,0 10,0 a 5,5 0 1,0 -10,0',
@@ -46,7 +43,6 @@ const SCADA_SVG_PATHS = {
   ground_symbol: 'M 50,10 L 50,50 M 20,50 L 80,50 M 35,65 L 65,65 M 45,80 L 55,80'
 };
 
-// ─── Custom UI Icons ───────────────
 const ScadaIcons = {
   Facility: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.scadavis_symbol} fill={color} stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>,
   Breaker: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><path d={SCADA_SVG_PATHS.breaker_symbol} fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" /></svg>,
@@ -69,9 +65,8 @@ const ScadaIcons = {
   LayersHMI: ({ size, color }) => <svg viewBox="0 0 100 100" width={size} height={size}><polygon points="50,15 90,35 50,55 10,35" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/><polygon points="10,55 50,75 90,55" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/><polygon points="10,75 50,95 90,75" fill="none" stroke={color} strokeWidth="6" strokeLinejoin="round"/></svg>
 };
 
-// ─── Main Component ─────────────────────────────────────────────────────────
 export const DesignerCanvas = () => {
-  const { tags, history, isSimulating, isDarkMode, writeTag, addCustomTag, devices, setDevices } = useContext(SCADAContext);
+  const { tags, history, isSimulating, isDarkMode, devices, setDevices } = useContext(SCADAContext);
   const canvasRef = useRef(null);
   const paperRef = useRef(null);
   const graphRef = useRef(new joint.dia.Graph());
@@ -86,7 +81,6 @@ export const DesignerCanvas = () => {
   const [showBuildModal, setShowBuildModal] = useState(false);
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState({});
-  const [savedGraph, setSavedGraph] = useState(null);
   const [isPanMode, setIsPanMode] = useState(false);
   const isPanModeRef = useRef(false);
   const isPanningRef = useRef(false);
@@ -99,7 +93,6 @@ export const DesignerCanvas = () => {
   const totalNodes = cellData.filter(c => c.isNode).length;
   const totalLinks = cellData.filter(c => c.isLink).length;
 
-  // ── Initialize JointJS Paper ─────────────────────────────────────────────
   useEffect(() => {
     if (!canvasRef.current) return;
     const graph = graphRef.current;
@@ -169,7 +162,6 @@ export const DesignerCanvas = () => {
     };
   }, [gridVisible, isSimulating, isDarkMode]);
 
-  // ── Sync JointJS cell data ───────────────────────────────────────────────
   useEffect(() => {
     if (!graphRef.current) return;
     const graph = graphRef.current;
@@ -193,7 +185,6 @@ export const DesignerCanvas = () => {
 
   const saveGraph = () => {
     const json = JSON.stringify(graphRef.current.toJSON());
-    setSavedGraph(json);
     localStorage.setItem('scada_graph_save', json);
     alert('Layout saved!');
   };
@@ -228,7 +219,6 @@ export const DesignerCanvas = () => {
   const addNodeToGraph = (data, x, y) => {
     const graph = graphRef.current;
     
-    // Updated default sizes to match realistic P&ID component dimensions
     const defaultSizes = {
       'tagNode': { w: 180, h: 80 }, 'line_chart': { w: 400, h: 250 }, 'bar_chart': { w: 400, h: 250 },
       'tank_level': { w: 120, h: 180 }, 'battery_level': { w: 160, h: 120 }, 'gauge_dial': { w: 140, h: 140 },
@@ -254,7 +244,6 @@ export const DesignerCanvas = () => {
 
     let element;
     
-    // 1. Check if it's an Image-based Component (From the HMISymbols Folder)
     const imgPath = getSymbolImagePath(data.t, data.props.color);
     if (imgPath) {
       element = new joint.shapes.standard.Image({
@@ -262,28 +251,22 @@ export const DesignerCanvas = () => {
         position: { x, y },
         size: { width: size.w, height: size.h },
         attrs: {
-          image: { 'xlink:href': imgPath, preserveAspectRatio: 'none' }, // 'none' allows you to stretch the pipes/tanks
+          image: { 'xlink:href': imgPath, preserveAspectRatio: 'none' },
           label: { text: data.props.name || '', fill: isDarkMode ? '#CBD5E1' : '#1e293b', refY: '100%', refY2: 15, textAnchor: 'middle' }
         },
         ports: portsConfig,
         data: { ...data.props, category: data.t }
       });
-    } 
-    // 2. Fallback to Native SVGs (Breakers, Disconnectors, Facilities)
-    else if (SCADA_SVG_PATHS[data.t]) {
+    } else if (SCADA_SVG_PATHS[data.t]) {
       element = new joint.shapes.standard.Path({
         id: uuidv4(),
         position: { x, y },
         size: { width: size.w, height: size.h },
         attrs: { 
           body: { 
-            d: SCADA_SVG_PATHS[data.t], 
-            fill: data.props.color || 'transparent', 
+            d: SCADA_SVG_PATHS[data.t], fill: data.props.color || 'transparent', 
             stroke: data.props.stroke || (isDarkMode ? '#CBD5E1' : '#1e293b'), 
-            strokeWidth: 2.5, 
-            strokeLinejoin: 'round',
-            strokeLinecap: 'round',
-            vectorEffect: 'non-scaling-stroke' 
+            strokeWidth: 2.5, strokeLinejoin: 'round', strokeLinecap: 'round', vectorEffect: 'non-scaling-stroke' 
           }, 
           label: { text: data.props.name || '', fill: isDarkMode ? '#CBD5E1' : '#1e293b', refY: '100%', refY2: 15, textAnchor: 'middle' } 
         },
@@ -293,9 +276,7 @@ export const DesignerCanvas = () => {
       if (['scadavis_symbol'].includes(data.t)) {
          element.attr('body/fill', data.props.color || '#3B82F6');
       }
-    } 
-    // 3. Invisible Rectangles for Overlays (Dashboards, Switches)
-    else {
+    } else {
       element = new joint.shapes.standard.Rectangle({
         id: uuidv4(),
         position: { x, y },
@@ -319,15 +300,12 @@ export const DesignerCanvas = () => {
     selectedCell.set('data', { ...data, [prop]: value });
     
     if (prop === 'color') {
-      // Magically swap the PNG image when the color is changed in the Inspector
       if (selectedCell.attributes.type === 'standard.Image') {
         const newImg = getSymbolImagePath(selectedCell.get('data').category, value);
         if (newImg) {
           selectedCell.attr('image/xlink:href', newImg);
         }
-      } 
-      // Update SVG strokes
-      else if (selectedCell.attributes.type === 'standard.Path') {
+      } else if (selectedCell.attributes.type === 'standard.Path') {
         selectedCell.attr('body/stroke', value); 
       }
     }
@@ -350,7 +328,6 @@ export const DesignerCanvas = () => {
 
   const tagOptions = useMemo(() => Object.keys(tags).map(key => ({ label: key, value: key })), [tags]);
 
-  // ── Fully Customized Toolbox definition ────────────────────────────────────
   const toolbox = [
     { cat: "Industrial Nodes", items: [
       { t: "tank_level", l: "Storage Silo", i: ScadaIcons.Facility, props: { name: "Silo 01", color: "#3B82F6", unit: "%" } },
@@ -388,7 +365,6 @@ export const DesignerCanvas = () => {
     ]}
   ];
 
-  const panelStyle = { backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)' };
   const inputSt = { backgroundColor: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11 };
 
   const toolbarBtn = (active, activeColor = 'var(--accent)') => ({
@@ -403,25 +379,12 @@ export const DesignerCanvas = () => {
     <div className="w-full flex-1 min-h-0 flex flex-col theme-transition" style={{ backgroundColor: 'var(--bg-main)' }}>
       <div className="flex shrink-0 theme-transition" style={{ backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border)' }}>
         
-        {/* LEFT TAB NAVIGATION - USING CUSTOM SVGS */}
         {!isSimulating && (
           <div className="flex" style={{ width: 320, borderRight: '1px solid var(--border)' }}>
-            <button
-              onClick={() => setActiveTab('explorer')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-widest transition-colors"
-              style={activeTab === 'explorer'
-                ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` }
-                : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}
-            >
+            <button onClick={() => setActiveTab('explorer')} className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-widest transition-colors" style={activeTab === 'explorer' ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` } : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}>
               <ScadaIcons.DatabaseTag size={16} color="currentColor" /> Explorer
             </button>
-            <button
-              onClick={() => setActiveTab('nodes')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-widest transition-colors"
-              style={activeTab === 'nodes'
-                ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` }
-                : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}
-            >
+            <button onClick={() => setActiveTab('nodes')} className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-widest transition-colors" style={activeTab === 'nodes' ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: `2px solid var(--accent)` } : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }}>
               <ScadaIcons.LayersHMI size={16} color="currentColor" /> Nodes
             </button>
           </div>
@@ -430,7 +393,6 @@ export const DesignerCanvas = () => {
         <div className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto">
           <span className="text-sm font-bold mr-4 shrink-0" style={{ color: 'var(--accent)' }}>Plant Layout Overview</span>
 
-          {/* Standard Canvas Tools */}
           <button style={toolbarBtn(false)} title="Undo"><Undo2 size={14} /></button>
           <button style={toolbarBtn(false)} title="Redo"><Redo2 size={14} /></button>
           <div className="w-px h-5 mx-1 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
@@ -462,10 +424,7 @@ export const DesignerCanvas = () => {
 
       <div className="flex-1 flex overflow-hidden">
         {!isSimulating && (
-          <div className="overflow-y-auto custom-scrollbar shrink-0 flex flex-col min-h-0 theme-transition"
-            style={{ width: 320, backgroundColor: 'var(--bg-panel)', borderRight: '1px solid var(--border)' }}>
-
-            {/* EXPLORER TAB */}
+          <div className="overflow-y-auto custom-scrollbar shrink-0 flex flex-col min-h-0 theme-transition" style={{ width: 320, backgroundColor: 'var(--bg-panel)', borderRight: '1px solid var(--border)' }}>
             {activeTab === 'explorer' && (
               <div className="flex flex-col gap-0 p-0">
                 <div className="flex gap-2 p-3 border-b" style={{ borderColor: 'var(--border)' }}>
@@ -484,10 +443,11 @@ export const DesignerCanvas = () => {
                       </button>
 
                       {!isCollapsed && cat.devices.map(dev => {
+                        const DevIcon = ICON_MAP[dev.iconKey] || Activity;
                         return (
                           <div key={dev.id} className="mx-3 mb-2 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
                             <div draggable onDragStart={e => e.dataTransfer.setData('application/scada', JSON.stringify({ t: 'tagNode', props: { name: dev.name } }))} className="flex items-center gap-3 p-3 cursor-grab" style={{ backgroundColor: 'var(--bg-subtle)' }}>
-                              <div className="shrink-0"><ScadaIcons.DevicePLC size={24} color="var(--accent)" /></div>
+                              <div className="shrink-0"><DevIcon size={24} color="var(--accent)" /></div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>{dev.name}</div>
                                 {dev.location && <div className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--text-muted)' }}>{dev.location}</div>}
@@ -510,7 +470,6 @@ export const DesignerCanvas = () => {
               </div>
             )}
 
-            {/* NODES TAB */}
             {activeTab === 'nodes' && (
               <div className="p-3 flex flex-col gap-4">
                 <button onClick={() => setShowBuildModal(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors" style={{ background: 'linear-gradient(135deg, var(--accent), #8B5CF6)', color: '#FFFFFF', border: 'none' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.9'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
@@ -612,6 +571,15 @@ export const DesignerCanvas = () => {
                       <CustomColorPicker value={canvasBg} onChange={setCanvasBg} />
                     </div>
                   </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  {[{ label: 'Total Nodes', value: totalNodes }, { label: 'Total Links', value: totalLinks }].map(({ label, value }) => (
+                    <div key={label} className="flex items-center justify-between p-3 rounded-lg border theme-transition" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}>
+                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                      <span className="text-lg font-mono font-bold" style={{ color: 'var(--text-primary)' }}>{value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

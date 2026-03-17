@@ -1,14 +1,11 @@
-import React, { useEffect, useRef, useContext } from 'react';
-import Gauge from 'svg-gauge'; // Ensure this is installed via npm or linked correctly
+import React, { useContext } from 'react';
 import { SCADAContext } from '../../context/SCADAContext';
 
 export const GaugeWidget = ({ node }) => {
-  const { tags } = useContext(SCADAContext);
-  const gaugeContainerRef = useRef(null);
-  const gaugeInstanceRef = useRef(null);
-
-  // Retrieve real-time data or fallback to 0
-  const tagKey = node.boundTag;
+  const { tags, isDarkMode } = useContext(SCADAContext);
+  
+  // Retrieve real-time data
+  const tagKey = node.boundTag || node.tagKey;
   const currentValue = (tagKey && tags[tagKey]) ? Number(tags[tagKey].value) : 0;
   
   // Customization props from Inspector
@@ -16,55 +13,53 @@ export const GaugeWidget = ({ node }) => {
   const name = node.name || 'Analog Gauge';
   const unit = node.unit || '';
 
-  // ── Initialize svg-gauge on Mount
-  useEffect(() => {
-    if (!gaugeContainerRef.current) return;
+  // Constrain value between 0 and 100 for the angle calculation
+  const percent = Math.max(0, Math.min(100, currentValue));
+  
+  // Sweep from -135 degrees to +135 degrees (270 degree physical sweep)
+  const angle = -135 + (percent * 2.7);
 
-    // Create the Vanilla JS gauge instance
-    gaugeInstanceRef.current = Gauge(gaugeContainerRef.current, {
-      max: 100, // Can be dynamic if you add a max property to Inspector
-      min: 0,
-      dialStartAngle: 135,
-      dialEndAngle: 45,
-      value: 0,
-      color: function(value) {
-        // Optional dynamic color mapping based on value ranges
-        if(value < 20) return '#10b981'; // Green
-        if(value > 80) return '#ef4444'; // Red
-        return color; // The color picked in the Inspector
-      },
-      label: function(value) {
-        return Math.round(value) + " " + unit;
-      }
-    });
-
-    return () => {
-      // Cleanup DOM on unmount to prevent duplicates if React strictly re-renders
-      if (gaugeContainerRef.current) {
-         gaugeContainerRef.current.innerHTML = '';
-      }
-    };
-  }, [color, unit]); // Re-initialize if theming changes
-
-  // ── Update Vanilla JS Instance when SCADA Context Changes
-  useEffect(() => {
-    if (gaugeInstanceRef.current) {
-      // 1-second animation duration to match your simulator interval
-      gaugeInstanceRef.current.setValueAnimated(currentValue, 1);
-    }
-  }, [currentValue]);
+  const textColor = isDarkMode ? '#f8fafc' : '#0f172a';
+  const trackColor = isDarkMode ? '#334155' : '#cbd5e1';
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center pointer-events-none p-2 relative">
-      <div 
-        ref={gaugeContainerRef} 
-        className="w-full flex-1"
-        style={{ pointerEvents: 'auto' }} // Allows gauge tooltips if any
-      />
-      <div 
-        className="absolute bottom-2 text-[10px] font-bold tracking-widest uppercase text-center w-full" 
-        style={{ color: 'var(--text-secondary)' }}
-      >
+    <div className="w-full h-full flex flex-col items-center justify-center p-2 relative pointer-events-none">
+      <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md" style={{ overflow: 'visible' }}>
+        
+        {/* Outer Bezel */}
+        <circle cx="50" cy="50" r="48" fill={isDarkMode ? '#0f172a' : '#ffffff'} stroke="#475569" strokeWidth="1.5" />
+        <circle cx="50" cy="50" r="44" fill="transparent" stroke={isDarkMode ? '#1e293b' : '#f1f5f9'} strokeWidth="4" />
+        
+        {/* Background Track (270 degrees) */}
+        <path d="M 20 80 A 40 40 0 1 1 80 80" fill="none" stroke={trackColor} strokeWidth="6" strokeLinecap="round" />
+        
+        {/* Colored Industrial Danger/Safe Zones (Tick Marks) */}
+        <path d="M 20 80 A 40 40 0 0 1 20 20" fill="none" stroke="#22C55E" strokeWidth="2" strokeDasharray="3 5" />
+        <path d="M 20 20 A 40 40 0 0 1 80 20" fill="none" stroke="#F59E0B" strokeWidth="2" strokeDasharray="3 5" />
+        <path d="M 80 20 A 40 40 0 0 1 80 80" fill="none" stroke="#EF4444" strokeWidth="2" strokeDasharray="3 5" />
+
+        {/* Hardware Needle */}
+        <g transform={`rotate(${angle} 50 50)`} style={{ transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+          {/* Needle shadow */}
+          <polygon points="48,52 52,52 50,17" fill="rgba(0,0,0,0.3)" />
+          {/* Needle body */}
+          <polygon points="48,50 52,50 50,15" fill={color} />
+          {/* Center Pin */}
+          <circle cx="50" cy="50" r="5" fill="#1e293b" stroke="#94a3b8" strokeWidth="1.5" />
+          <circle cx="50" cy="50" r="2" fill="#475569" />
+        </g>
+
+        {/* Digital Value Text Overlay */}
+        <text x="50" y="72" textAnchor="middle" fill={textColor} fontSize="16" fontWeight="bold" fontFamily="monospace">
+          {Math.round(currentValue)}
+        </text>
+        <text x="50" y="82" textAnchor="middle" fill="#64748b" fontSize="8" fontWeight="bold" letterSpacing="1">
+          {unit}
+        </text>
+      </svg>
+      
+      {/* Engraved Label */}
+      <div className="absolute bottom-2 w-full text-center text-[9px] font-bold uppercase tracking-widest truncate px-2" style={{ color: '#64748b' }}>
         {name}
       </div>
     </div>

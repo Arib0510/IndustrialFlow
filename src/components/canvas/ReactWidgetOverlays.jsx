@@ -7,7 +7,6 @@ import { GaugeWidget } from "./GaugeWidget";
 
 // ─── Industrial Hardware UI Components ─────────────────────────────────────
 
-// 1. Physically rendered mounting screw
 const Screw = ({ style }) => (
   <div style={{
     width: 6, height: 6, borderRadius: '50%',
@@ -21,11 +20,10 @@ const Screw = ({ style }) => (
   </div>
 );
 
-// 2. Heavy metallic backplate
 const HardwarePanel = ({ isDarkMode, children, style, className = '' }) => {
   const bg = isDarkMode 
-    ? 'linear-gradient(135deg, #334155 0%, #0f172a 100%)' // Dark Anodized Aluminum
-    : 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)'; // Light Brushed Steel
+    ? 'linear-gradient(135deg, #334155 0%, #0f172a 100%)' 
+    : 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)'; 
   const borderTop = isDarkMode ? '#475569' : '#ffffff';
   const borderBottom = isDarkMode ? '#020617' : '#94a3b8';
   
@@ -50,7 +48,6 @@ const HardwarePanel = ({ isDarkMode, children, style, className = '' }) => {
   );
 };
 
-// 3. Engraved Metal Nameplate
 const EngravedLabel = ({ isDarkMode, children, className = '' }) => (
   <div className={`text-[10px] font-bold uppercase tracking-widest truncate w-full text-center mb-2 px-2 ${className}`} 
        style={{ 
@@ -66,7 +63,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
   const { tags, writeTag, isSimulating, isDarkMode } = useContext(SCADAContext);
   const transformRef = useRef(null);
 
-  // Sync overlay transform with JointJS paper scale/translate
   useEffect(() => {
     let animId;
     const syncTransform = () => {
@@ -103,7 +99,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           transform: `rotate(${angle}deg)`, pointerEvents: 'none'
         };
 
-        // ── Hardware LCD / Charts
         if (nodeData.category === 'line_chart' || nodeData.category === 'bar_chart') {
           return (
             <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col p-2">
@@ -131,7 +126,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Analog Gauge
         if (nodeData.category === 'gauge_dial') {
           return (
             <div key={nodeData.id} style={{ ...style, pointerEvents: 'auto' }}>
@@ -142,7 +136,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Native JointJS Overlays (Tanks, Pumps, Valves) -> Screwed Nameplates
         if (['tank_level', 'motor_status', 'valve_control'].includes(nodeData.category)) {
           let text = "";
           let bg = isDarkMode ? '#1e293b' : '#f8fafc';
@@ -165,7 +158,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Industrial Segmented Progress Bar
         if (nodeData.category === 'progress_bar') {
           const pcent = Math.max(0, Math.min(100, val || 0));
           const segments = 12;
@@ -191,7 +183,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Recessed LCD Readout
         if (nodeData.category === 'digital_readout') {
           return (
             <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
@@ -205,7 +196,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Digital Panel Meter
         if (nodeData.category === 'temp_display') {
           return (
             <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
@@ -217,7 +207,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Industrial Rotary Toggle Switch
         if (nodeData.category === 'toggle_switch') {
           const isON = !!val;
           return (
@@ -242,7 +231,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Tactile +/- Value Control
         if (nodeData.category === 'value_control') {
           const btnStyle = {
              width: 28, height: 28, borderRadius: '50%', pointerEvents: 'auto', cursor: 'pointer',
@@ -264,7 +252,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── 3D Glass Dome Status LED
         if (nodeData.category === 'status_led') {
           return (
             <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
@@ -274,14 +261,12 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
                 background: val ? `radial-gradient(circle at 30% 30%, #fff, ${color} 40%, #000)` : 'radial-gradient(circle at 30% 30%, #64748b, #0f172a)',
                 boxShadow: val ? `0 0 20px ${color}, inset 0 -4px 8px rgba(0,0,0,0.6)` : 'inset 0 -4px 8px rgba(0,0,0,0.6)',
               }}>
-                {/* Glass Specular Highlight */}
                 <div style={{ position: 'absolute', top: '10%', left: '15%', width: '45%', height: '35%', background: 'linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0))', borderRadius: '50%', transform: 'rotate(-45deg)' }} />
               </div>
             </HardwarePanel>
           );
         }
 
-        // ── Hazard Alert Banner
         if (nodeData.category === 'alert_banner') {
           return (
             <div key={nodeData.id} style={{ 
@@ -300,7 +285,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Engraved Header Text
         if (nodeData.category === 'header_text') {
           return (
             <div key={nodeData.id} style={style} className="flex items-center justify-center">
@@ -312,7 +296,6 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
           );
         }
 
-        // ── Raw Tag Data Block
         if (nodeData.category === 'tagNode') {
           return (
             <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 border-l-4 border-l-amber-500">
