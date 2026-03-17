@@ -1,8 +1,145 @@
 @import "tailwindcss";
 
-/* We still want to keep our custom grab cursor! */
+/* ============================================================
+   SCADA DASHBOARD - THEME SYSTEM
+   Light Mode = :root, Dark Mode = html.dark
+   ============================================================ */
+
+:root {
+  /* Structure */
+  --bg-main:        #F5F7FA;
+  --bg-panel:       #FFFFFF;
+  --bg-canvas:      #EEF2F6;
+  --bg-input:       #FFFFFF;
+  --bg-hover:       #E5E7EB;
+  --bg-subtle:      #F0F4F8;
+
+  /* Borders */
+  --border:         #D6DCE5;
+  --border-strong:  #B0BEC5;
+
+  /* Text */
+  --text-primary:   #1F2933;
+  --text-secondary: #6B7280;
+  --text-muted:     #9CA3AF;
+
+  /* Accent */
+  --accent:         #2563EB;
+  --accent-hover:   #3B82F6;
+  --accent-active:  #1D4ED8;
+
+  /* Status */
+  --status-ok:      #22C55E;
+  --status-warn:    #F59E0B;
+  --status-error:   #EF4444;
+  --status-offline: #6B7280;
+  --status-manual:  #8B5CF6;
+  --status-info:    #06B6D4;
+
+  /* Chart scroll bar */
+  --scrollbar-thumb: #D6DCE5;
+  --scrollbar-track: #F5F7FA;
+
+  /* Tooltip */
+  --tooltip-bg:     #FFFFFF;
+  --tooltip-border: #D6DCE5;
+  --tooltip-text:   #1F2933;
+}
+
+html.dark {
+  /* Structure */
+  --bg-main:        #0F172A;
+  --bg-panel:       #1E293B;
+  --bg-canvas:      #111827;
+  --bg-input:       #1E293B;
+  --bg-hover:       #374151;
+  --bg-subtle:      #162032;
+
+  /* Borders */
+  --border:         #374151;
+  --border-strong:  #4B5563;
+
+  /* Text */
+  --text-primary:   #E5E7EB;
+  --text-secondary: #9CA3AF;
+  --text-muted:     #6B7280;
+
+  /* Accent */
+  --accent:         #3B82F6;
+  --accent-hover:   #60A5FA;
+  --accent-active:  #2563EB;
+
+  /* Status (unchanged across modes) */
+  --status-ok:      #22C55E;
+  --status-warn:    #F59E0B;
+  --status-error:   #EF4444;
+  --status-offline: #6B7280;
+  --status-manual:  #8B5CF6;
+  --status-info:    #06B6D4;
+
+  /* Scrollbar */
+  --scrollbar-thumb: #374151;
+  --scrollbar-track: #0F172A;
+
+  /* Tooltip */
+  --tooltip-bg:     #1E293B;
+  --tooltip-border: #374151;
+  --tooltip-text:   #E5E7EB;
+}
+
+/* ============================================================
+   GLOBAL BASE STYLES
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  height: 100dvh; /* dynamic viewport height - adapts to browser chrome */
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ============================================================
+   CUSTOM SCROLLBAR
+   ============================================================ */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ============================================================
+   DRAG CURSOR
+   ============================================================ */
 .react-draggable-dragging {
   cursor: grabbing !important;
   opacity: 0.9;
   box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+}
+
+/* ============================================================
+   JOINTJS PAPER BACKGROUND
+   ============================================================ */
+.joint-paper { background: transparent !important; }
+
+/* ============================================================
+   THEME UTILITY CLASSES (used in JSX instead of Tailwind dark:)
+   ============================================================ */
+.t-bg-main    { background-color: var(--bg-main); }
+.t-bg-panel   { background-color: var(--bg-panel); }
+.t-bg-canvas  { background-color: var(--bg-canvas); }
+.t-bg-input   { background-color: var(--bg-input); }
+.t-bg-hover:hover { background-color: var(--bg-hover); }
+.t-border     { border-color: var(--border); }
+.t-text-primary   { color: var(--text-primary); }
+.t-text-secondary { color: var(--text-secondary); }
+.t-accent     { color: var(--accent); }
+
+/* Transition helper */
+.theme-transition {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
