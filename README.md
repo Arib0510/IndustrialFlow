@@ -1,16 +1,36 @@
-# React + Vite
+# SCADA IoT Dashboard Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This project is a modern, responsive frontend application for a SCADA IoT Dashboard, built with React and Vite. It provides a modular and robust architecture to monitor and control industrial systems, displaying real-time data, schematics, and system statuses.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Advanced Drawing Suite (Hand-Draw Tool):** Includes capabilities for polygon creation, advanced link connections, schematic modifications, and element grouping. Users can build complex schematic blocks and bind them directly to real-time IoT tags with precision.
+- **Real-Time Data Binding:** Dynamic updates connected directly to IoT data sources.
+- **Modern Design:** A clean, responsive, and dynamic UI leveraging advanced styling to offer a premium user experience.
+- **Vite & React Environment:** High performance development and optimized production builds.
 
-## React Compiler
+## Getting Started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+First, install the dependencies:
 
-## Expanding the ESLint configuration
+```bash
+npm install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Run the development server:
+
+```bash
+npm run dev
+```
+
+Navigate to the provided localhost URL in your browser to view the application.
+
+## Development
+
+- Built with Vite for Fast Refresh and highly optimized bundle sizes.
+- Uses React for a component-based UI.
+- Modular component architecture located under the `src/` directory.
+
+## Hand-Draw Tool
+
+The `hand-draw-tool` branch includes the latest suite of advanced drawing capabilities, including grouping and direct data binding for schematic elements.

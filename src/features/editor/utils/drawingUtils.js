@@ -10,6 +10,36 @@
 import * as joint from 'jointjs';
 import { v4 as uuidv4 } from 'uuid';
 
+// Custom element: no refWidth/refHeight defaults that would distort the d path
+joint.shapes.scada = joint.shapes.scada || {};
+if (!joint.shapes.scada.DrawnPath) {
+  joint.shapes.scada.DrawnPath = joint.dia.Element.define('scada.DrawnPath', {
+    attrs: {
+      body: {
+        fill: 'none',
+        stroke: '#CBD5E1',
+        strokeWidth: 2,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+      },
+      label: {
+        textVerticalAnchor: 'middle',
+        textAnchor: 'middle',
+        refX: '50%',
+        refY: '50%',
+        fontSize: 13,
+        fill: '#CBD5E1',
+        fontFamily: 'Inter, sans-serif',
+      },
+    },
+  }, {
+    markup: [
+      { tagName: 'path', selector: 'body' },
+      { tagName: 'text', selector: 'label' },
+    ],
+  });
+}
+
 // ── Port config shared by all drawable shapes ─────────────────────────────────
 const makePortMarkup = () => [
   {
@@ -135,12 +165,12 @@ export const createPolygon = ({ vertices, isDarkMode }) => {
   const relVerts = vertices.map(v => ({ x: v.x - minX, y: v.y - minY }));
   const d = buildPolyPath(relVerts, true);
 
-  return new joint.shapes.standard.Path({
+  return new joint.shapes.scada.DrawnPath({
     id: uuidv4(),
     position: { x: minX, y: minY },
     size: { width: w, height: h },
     attrs: {
-      body:  { d, fill: 'transparent', stroke, strokeWidth: 2, refX: 0, refY: 0 },
+      body:  { d, fill: 'rgba(0,0,0,0.001)', stroke, strokeWidth: 2 },
       label: { text: '', fill: stroke, fontSize: 13, fontFamily: 'Inter, sans-serif' },
     },
     ports: makePortsConfig(),
@@ -177,3 +207,65 @@ export const createImageShape = ({ x, y, dataUrl, width = 120, height = 120 }) =
     ports: makePortsConfig(),
     data: defaultShapeData({ category: 'drawn_image', stroke: 'none' }),
   });
+
+// ── Z-order: normalize z values to sequential ints, return sorted array ───────
+export const normalizeSortedCells = (graph) => {
+  const sorted = [...graph.getCells()]
+    .sort((a, b) => (a.get('z') ?? 0) - (b.get('z') ?? 0));
+  sorted.forEach((c, i) => c.set('z', i));
+  return sorted;
+};
+
+// ── Ramer-Douglas-Peucker point thinning (epsilon in canvas units) ────────────
+const rdpReduce = (points, epsilon) => {
+  if (points.length < 3) return points;
+  let maxDist = 0, maxIdx = 0;
+  const start = points[0], end = points[points.length - 1];
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  for (let i = 1; i < points.length - 1; i++) {
+    const dist = Math.abs(dy * points[i].x - dx * points[i].y + end.x * start.y - end.y * start.x) / len;
+    if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+  }
+  if (maxDist > epsilon) {
+    return [
+      ...rdpReduce(points.slice(0, maxIdx + 1), epsilon),
+      ...rdpReduce(points.slice(maxIdx), epsilon).slice(1),
+    ];
+  }
+  return [start, end];
+};
+
+// ── Freehand path from collected mouse points ─────────────────────────────────
+export const createFreedrawPath = ({ points, isDarkMode }) => {
+  if (!points || points.length < 2) return null;
+  const reduced = rdpReduce(points, 1.5);
+  const stroke  = isDarkMode ? '#CBD5E1' : '#1e293b';
+  const xs = reduced.map(p => p.x);
+  const ys = reduced.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = Math.max(4, maxX - minX);
+  const h = Math.max(4, maxY - minY);
+  const d = reduced
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(p.x - minX).toFixed(1)} ${(p.y - minY).toFixed(1)}`)
+    .join(' ');
+  return new joint.shapes.scada.DrawnPath({
+    id: uuidv4(),
+    position: { x: minX, y: minY },
+    size: { width: w, height: h },
+    attrs: {
+      body: {
+        d,
+        fill: 'none',
+        stroke,
+        strokeWidth: 2,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+      },
+      label: { text: '' },
+    },
+    ports: makePortsConfig(),
+    data: defaultShapeData({ stroke, shapeType: 'freedraw', points }),
+  });
+};

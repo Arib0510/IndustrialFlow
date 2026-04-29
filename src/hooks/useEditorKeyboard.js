@@ -33,6 +33,7 @@ export const useEditorKeyboard = ({
   onDuplicate,
   onDelete,
   onEscape,
+  onCommitPolygon,
 }) => {
   useEffect(() => {
     const handler = (e) => {
@@ -57,10 +58,11 @@ export const useEditorKeyboard = ({
       if (ctrl && e.key === 'd') { e.preventDefault(); onDuplicate?.(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { onDelete?.(); return; }
       if (e.key === 'Escape') { onEscape?.(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); onCommitPolygon?.(); return; }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onCopy, onPaste, onDuplicate, onDelete, onEscape]);
+  }, [onCopy, onPaste, onDuplicate, onDelete, onEscape, onCommitPolygon]);
 };

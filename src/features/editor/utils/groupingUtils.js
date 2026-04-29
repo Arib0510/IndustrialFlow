@@ -15,6 +15,7 @@
 
 import * as joint from 'jointjs';
 import { v4 as uuidv4 } from 'uuid';
+import { makePortsConfig } from './drawingUtils';
 
 const GROUP_PADDING = 24;
 
@@ -73,6 +74,7 @@ export const groupCells = (graph, cellIds, isDarkMode = true) => {
         yAlignment:  'top',
       },
     },
+    ports: makePortsConfig(),
     // Group sits behind its children
     z: Math.min(...cells.map(c => c.get('z') ?? 0), 0) - 1,
     data: {

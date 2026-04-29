@@ -35,7 +35,7 @@ import { ScadaIcons, getSymbolImagePath, SCADA_SVG_PATHS } from '../features/edi
 import {
   createRectangle, createEllipse, createLine,
   createTextLabel, createPolygon, createImageShape,
-  makePortsConfig,
+  makePortsConfig, normalizeSortedCells, createFreedrawPath,
 } from '../features/editor/utils/drawingUtils';
 
 // Phase 3 — Expression binding engine
@@ -78,9 +78,16 @@ export const EditorPage = () => {
   const currentDrawShapeRef = useRef(null);
   // Phase 1 — Polygon vertex accumulation (preview rendered as React SVG overlay)
   const polyVerticesRef    = useRef([]);
+  // Freehand draw
+  const isFreeDrawingRef   = useRef(false);
+  const freeDrawPointsRef  = useRef([]);
+  const freeDrawSvgRef     = useRef(null);
   // Phase 6 — Rubber-band multi-select
   const isRubberBandRef    = useRef(false);
   const rubberStartRef     = useRef({ x: 0, y: 0 });
+  const rubberTransformRef     = useRef({ tx: 0, ty: 0, sx: 1 });
+  const suppressGroupResizeRef = useRef(false);
+  const suppressGroupRotateRef = useRef(false);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [activeTab,             setActiveTab]             = useState('explorer');
@@ -179,7 +186,22 @@ export const EditorPage = () => {
     setActiveDrawTool(null);
     polyVerticesRef.current = [];
     setPolyPreviewVerts([]);
+    isFreeDrawingRef.current = false;
+    freeDrawPointsRef.current = [];
   }, []);
+
+  const handleCommitPolygon = useCallback(() => {
+    if (activeDrawToolRef.current !== 'polygon') return;
+    const raw = polyVerticesRef.current;
+    if (raw.length >= 3) {
+      const el = createPolygon({ vertices: raw, isDarkMode });
+      graphRef.current.addCell(el);
+      setSelectedCellId(el.id);
+    }
+    polyVerticesRef.current = [];
+    setPolyPreviewVerts([]);
+    setActiveDrawTool(null);
+  }, [isDarkMode]);
 
   // ── Phase 3 (group): Group / Ungroup ─────────────────────────────────────
   const handleGroup = useCallback(() => {
@@ -198,19 +220,38 @@ export const EditorPage = () => {
   }, [selectedCellId]);
 
   // ── Phase 4: Z-order ──────────────────────────────────────────────────────
-  const bringToFront  = useCallback(() => selectedCell?.toFront(),   [selectedCell]);
-  const bringForward  = useCallback(() => selectedCell?.toFront(),   [selectedCell]); // JointJS has no step-up
-  const sendBackward  = useCallback(() => selectedCell?.toBack(),    [selectedCell]);
-  const sendToBack    = useCallback(() => selectedCell?.toBack(),     [selectedCell]);
+  const bringToFront = useCallback(() => selectedCell?.toFront(), [selectedCell]);
+  const sendToBack   = useCallback(() => selectedCell?.toBack(),  [selectedCell]);
+
+  const bringForward = useCallback(() => {
+    if (!selectedCell) return;
+    const sorted = normalizeSortedCells(graphRef.current);
+    const idx = sorted.findIndex(c => c.id === selectedCell.id);
+    if (idx >= 0 && idx < sorted.length - 1) {
+      sorted[idx].set('z', idx + 1);
+      sorted[idx + 1].set('z', idx);
+    }
+  }, [selectedCell]);
+
+  const sendBackward = useCallback(() => {
+    if (!selectedCell) return;
+    const sorted = normalizeSortedCells(graphRef.current);
+    const idx = sorted.findIndex(c => c.id === selectedCell.id);
+    if (idx > 0) {
+      sorted[idx].set('z', idx - 1);
+      sorted[idx - 1].set('z', idx);
+    }
+  }, [selectedCell]);
 
   // ── Phase 5+6: Keyboard shortcuts ────────────────────────────────────────
   useEditorKeyboard({
     historyRef,
-    onCopy:      handleCopy,
-    onPaste:     handlePaste,
-    onDuplicate: handleDuplicate,
-    onDelete:    handleDelete,
-    onEscape:    handleEscape,
+    onCopy:           handleCopy,
+    onPaste:          handlePaste,
+    onDuplicate:      handleDuplicate,
+    onDelete:         handleDelete,
+    onEscape:         handleEscape,
+    onCommitPolygon:  handleCommitPolygon,
   });
 
   // ── Phase 3: Tag expression binding sync ─────────────────────────────────
@@ -219,13 +260,95 @@ export const EditorPage = () => {
     syncAllBindings(graphRef.current, tags);
   }, [tags]);
 
+  // ── Multi-select: highlight all selected cells with a blue stroke ─────────
+  useEffect(() => {
+    const paper = paperRef.current;
+    if (!paper) return;
+    joint.highlighters.stroke.removeAll(paper, 'multi-select');
+    selectedCellIds.forEach(id => {
+      const cell = graphRef.current.getCell(id);
+      if (!cell || cell.isLink()) return;
+      const cv = paper.findViewByModel(cell);
+      if (!cv) return;
+      joint.highlighters.stroke.add(cv, 'body', 'multi-select', {
+        attrs: { stroke: '#3B82F6', 'stroke-width': 2.5 },
+      });
+    });
+  }, [selectedCellIds]);
+
+  // ── Group: propagate resize + rotation to embedded children ─────────────
+  useEffect(() => {
+    const graph = graphRef.current;
+
+    const onResize = (cell) => {
+      if (suppressGroupResizeRef.current) return;
+      if (cell.get('data')?.category !== 'group') return;
+      const oldSize = cell.previous('size');
+      const newSize = cell.get('size');
+      if (!oldSize || !newSize) return;
+      const scaleX = newSize.width  / oldSize.width;
+      const scaleY = newSize.height / oldSize.height;
+      if (!isFinite(scaleX) || !isFinite(scaleY) || (scaleX === 1 && scaleY === 1)) return;
+      const groupPos = cell.get('position');
+      suppressGroupResizeRef.current = true;
+      cell.getEmbeddedCells().forEach(child => {
+        if (child.isLink()) return;
+        const cp = child.get('position');
+        const cs = child.get('size');
+        child.set('position', {
+          x: groupPos.x + (cp.x - groupPos.x) * scaleX,
+          y: groupPos.y + (cp.y - groupPos.y) * scaleY,
+        });
+        child.set('size', { width: cs.width * scaleX, height: cs.height * scaleY });
+      });
+      suppressGroupResizeRef.current = false;
+    };
+
+    const onRotate = (cell) => {
+      if (suppressGroupRotateRef.current) return;
+      if (cell.get('data')?.category !== 'group') return;
+      const oldAngle = cell.previous('angle') ?? 0;
+      const newAngle = cell.get('angle') ?? 0;
+      const delta = newAngle - oldAngle;
+      if (delta === 0) return;
+      const gs = cell.get('size');
+      const gp = cell.get('position');
+      const pivotX = gp.x + gs.width  / 2;
+      const pivotY = gp.y + gs.height / 2;
+      const rad = delta * Math.PI / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      suppressGroupRotateRef.current = true;
+      cell.getEmbeddedCells().forEach(child => {
+        if (child.isLink()) return;
+        const cp = child.get('position');
+        const cs = child.get('size');
+        const cx = cp.x + cs.width  / 2 - pivotX;
+        const cy = cp.y + cs.height / 2 - pivotY;
+        child.set('position', {
+          x: pivotX + cx * cos - cy * sin - cs.width  / 2,
+          y: pivotY + cx * sin + cy * cos - cs.height / 2,
+        });
+        child.set('angle', (child.get('angle') ?? 0) + delta);
+      });
+      suppressGroupRotateRef.current = false;
+    };
+
+    graph.on('change:size',  onResize);
+    graph.on('change:angle', onRotate);
+    return () => {
+      graph.off('change:size',  onResize);
+      graph.off('change:angle', onRotate);
+    };
+  }, []);
+
   // ── Cell data sync from graph ─────────────────────────────────────────────
   useEffect(() => {
     const graph = graphRef.current;
     const syncData = () => {
       const mapped = graph.getCells().map(c => {
         const d = c.toJSON();
-        const isNode = ['standard.Rectangle','standard.Ellipse','standard.Path','standard.Image'].includes(d.type);
+        const isNode = ['standard.Rectangle','standard.Ellipse','standard.Path','standard.Image','scada.DrawnPath'].includes(d.type);
         if (isNode) {
           return { id: d.id, ...d.data, position: d.position, size: d.size, angle: d.angle || c.angle() || 0, isNode: true, customType: d.type };
         }
@@ -342,6 +465,17 @@ export const EditorPage = () => {
           return;
         }
 
+        // ── Free draw: start collecting points ──────────────────────────
+        if (tool === 'freeDraw') {
+          const pt = paper.clientToLocalPoint(evt.clientX, evt.clientY);
+          freeDrawPointsRef.current = [{ x: pt.x, y: pt.y }];
+          isFreeDrawingRef.current  = true;
+          const { tx, ty } = paper.translate();
+          const { sx }     = paper.scale();
+          setPolyTransform({ tx, ty, sx });
+          return;
+        }
+
         // ── Rect / Ellipse / Line: start drag ───────────────────────────
         isDrawingShapeRef.current = true;
         panStartRef.current = { x, y };
@@ -371,9 +505,13 @@ export const EditorPage = () => {
       // ── Rubber-band multi-select ──────────────────────────────────────
       isRubberBandRef.current = true;
       rubberStartRef.current  = { x, y };
-      setRubberRect({ x, y, w: 0, h: 0 });
+      const { tx: rtx, ty: rty } = paper.translate();
+      const { sx: rsx }           = paper.scale();
+      rubberTransformRef.current  = { tx: rtx, ty: rty, sx: rsx };
+      setRubberRect({ x: x * rsx + rtx, y: y * rsx + rty, w: 0, h: 0 });
       setIsRubberBandActive(true);
       setSelectedCellId(null);
+      setSelectedCellIds([]);
     });
 
     // ── blank:pointermove ─────────────────────────────────────────────────
@@ -389,8 +527,9 @@ export const EditorPage = () => {
         }
       }
       if (isRubberBandRef.current) {
-        const sx = rubberStartRef.current.x, sy = rubberStartRef.current.y;
-        setRubberRect({ x: sx, y: sy, w: x - sx, h: y - sy });
+        const { tx, ty, sx } = rubberTransformRef.current;
+        const bx = rubberStartRef.current.x, by = rubberStartRef.current.y;
+        setRubberRect({ x: bx * sx + tx, y: by * sx + ty, w: (x - bx) * sx, h: (y - by) * sx });
       }
     });
 
@@ -429,8 +568,13 @@ export const EditorPage = () => {
               bbox.y < band.y + band.height &&
               bbox.y + bbox.height > band.y;
           });
-          setSelectedCellIds(selected.map(c => c.id));
-          if (selected.length === 1) setSelectedCellId(selected[0].id);
+          if (selected.length === 1) {
+            setSelectedCellIds([]);
+            setSelectedCellId(selected[0].id);
+          } else {
+            setSelectedCellIds(selected.map(c => c.id));
+            setSelectedCellId(null);
+          }
         }
         isRubberBandRef.current  = false;
         setRubberRect(null);
@@ -444,9 +588,25 @@ export const EditorPage = () => {
     paper.on('blank:pointerdblclick', () => {
       if (activeDrawToolRef.current === 'polygon') {
         const raw   = polyVerticesRef.current;
-        const verts = raw.length > 3 ? raw.slice(0, -1) : raw; // drop duplicate
+        const verts = raw.length >= 4 ? raw.slice(0, -1) : raw; // drop duplicate from 2nd click
         if (verts.length >= 3) {
           const el = createPolygon({ vertices: verts, isDarkMode });
+          graph.addCell(el);
+          setSelectedCellId(el.id);
+        }
+        polyVerticesRef.current = [];
+        setPolyPreviewVerts([]);
+        setActiveDrawTool(null);
+      }
+    });
+
+    // ── blank:contextmenu — right-click to close polygon ─────────────────
+    paper.on('blank:contextmenu', (evt) => {
+      if (activeDrawToolRef.current === 'polygon') {
+        evt.preventDefault?.();
+        const raw = polyVerticesRef.current;
+        if (raw.length >= 3) {
+          const el = createPolygon({ vertices: raw, isDarkMode });
           graph.addCell(el);
           setSelectedCellId(el.id);
         }
@@ -480,19 +640,50 @@ export const EditorPage = () => {
     // Hide link tools when clicking blank canvas or a non-link element
     paper.on('blank:pointerdown', () => paper.hideTools());
 
+    // ── cell:pointerdown — start free draw even when mouse is over a cell ─
+    paper.on('cell:pointerdown', (cellView, evt) => {
+      if (activeDrawToolRef.current === 'freeDraw') {
+        const pt = paper.clientToLocalPoint(evt.clientX, evt.clientY);
+        freeDrawPointsRef.current = [{ x: pt.x, y: pt.y }];
+        isFreeDrawingRef.current  = true;
+        const { tx, ty } = paper.translate();
+        const { sx }     = paper.scale();
+        setPolyTransform({ tx, ty, sx });
+      }
+    });
+
     // ── cell:pointerup ────────────────────────────────────────────────────
-    paper.on('cell:pointerup', (cellView) => {
-      if (!isDrawingShapeRef.current) setSelectedCellId(cellView.model.id);
-      // Show link tools if an existing link is selected (not a newly drawn one)
-      if (cellView.model.isLink() && !isDrawingShapeRef.current) {
+    paper.on('cell:pointerup', (cellView, evt) => {
+      const id     = cellView.model.id;
+      const isCtrl = evt?.ctrlKey || evt?.metaKey;
+      if (!isDrawingShapeRef.current) {
+        if (isCtrl) {
+          setSelectedCellIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+          setSelectedCellId(null);
+        } else {
+          setSelectedCellId(id);
+          setSelectedCellIds([]);
+        }
+      }
+      if (cellView.model.isLink() && !isDrawingShapeRef.current && !isCtrl) {
         showLinkTools(cellView);
       }
     });
 
-    // ── Pan: mouse move / up on document ─────────────────────────────────
+    // ── Pan + FreeDraw: mouse move / up on document ───────────────────────
     const handlePanMove = (e) => {
       if (isPanningRef.current && paperRef.current) {
         paperRef.current.translate(e.clientX - panStartRef.current.x, e.clientY - panStartRef.current.y);
+      }
+      if (isFreeDrawingRef.current && paperRef.current) {
+        const pt = paperRef.current.clientToLocalPoint(e.clientX, e.clientY);
+        freeDrawPointsRef.current.push({ x: pt.x, y: pt.y });
+        if (freeDrawSvgRef.current) {
+          const pts = freeDrawPointsRef.current;
+          freeDrawSvgRef.current.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
+        }
       }
     };
     const handlePanEnd = () => {
@@ -504,6 +695,20 @@ export const EditorPage = () => {
         isDrawingShapeRef.current   = false;
         currentDrawShapeRef.current = null;
         if (activeDrawToolRef.current !== 'polygon') setActiveDrawTool(null);
+      }
+      if (isFreeDrawingRef.current) {
+        isFreeDrawingRef.current = false;
+        const pts = freeDrawPointsRef.current;
+        if (pts.length >= 2) {
+          const el = createFreedrawPath({ points: pts, isDarkMode });
+          if (el) {
+            graph.addCell(el);
+            setSelectedCellId(el.id);
+          }
+        }
+        freeDrawPointsRef.current = [];
+        if (freeDrawSvgRef.current) freeDrawSvgRef.current.setAttribute('points', '');
+        setActiveDrawTool(null);
       }
     };
     document.addEventListener('mousemove', handlePanMove);
@@ -656,7 +861,8 @@ export const EditorPage = () => {
         if (t === 'standard.Image') {
           const img = getSymbolImagePath(selectedCell.get('data').category, value);
           if (img) selectedCell.attr('image/xlink:href', img);
-        } else if (t === 'standard.Path')      { selectedCell.attr('body/stroke', value); }
+        } else if (t === 'standard.Path' ||
+                   t === 'scada.DrawnPath')     { selectedCell.attr('body/stroke', value); }
         else if (t === 'standard.Rectangle' ||
                  t === 'standard.Ellipse')      { selectedCell.attr('body/stroke', value); }
         else if (selectedCell.isLink())         { selectedCell.attr('line/stroke', value); }
@@ -818,6 +1024,25 @@ export const EditorPage = () => {
                     stroke="white" strokeWidth={1.5 / polyTransform.sx}
                   />
                 ))}
+              </g>
+            </svg>
+          )}
+
+          {/* Free draw preview — DOM ref updated directly for performance */}
+          {activeDrawTool === 'freeDraw' && (
+            <svg
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 15 }}
+            >
+              <g transform={`translate(${polyTransform.tx},${polyTransform.ty}) scale(${polyTransform.sx})`}>
+                <polyline
+                  ref={freeDrawSvgRef}
+                  points=""
+                  fill="none"
+                  stroke="#8B5CF6"
+                  strokeWidth={2 / polyTransform.sx}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </g>
             </svg>
           )}

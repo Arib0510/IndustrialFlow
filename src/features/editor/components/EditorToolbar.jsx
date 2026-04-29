@@ -18,7 +18,7 @@ import {
   Copy, ClipboardPaste, Save, FolderOpen, FileDown,
   Square, Circle, Minus, Hand, Type, Pentagon,
   ImagePlus, ChevronsUp, ChevronUp, ChevronDown, ChevronsDown,
-  Layers, Trash2,
+  Layers, Trash2, Pencil,
 } from 'lucide-react';
 import { ScadaIcons } from '../utils/iconUtils.jsx';
 
@@ -137,9 +137,10 @@ export const EditorToolbar = ({
         {drawBtn('rectangle', Square,   'Draw Rectangle'  )}
         {drawBtn('ellipse',   Circle,   'Draw Ellipse'    )}
         {drawBtn('line',      Minus,    'Draw Line / Pipe')}
-        {drawBtn('polygon',   Pentagon, 'Draw Polygon'    )}
+        {drawBtn('polygon',   Pentagon, 'Draw Polygon (click vertices, dbl-click/Enter/right-click to close)')}
         {drawBtn('text',      Type,     'Text Label'      )}
         {drawBtn('image',     ImagePlus,'Insert Image'    )}
+        {drawBtn('freeDraw',  Pencil,   'Free Draw (Pencil)'  )}
         <Sep />
 
         {/* Z-Order */}
