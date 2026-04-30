@@ -82,12 +82,11 @@ export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, pap
   const tooltipStyle = { backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '10px', color: '#f8fafc' };
 
   return (
-    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+    <div className="absolute inset-0 z-[5] pointer-events-none">
       <div ref={transformRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0' }}>
         {nodes.map(nodeData => {
         // Drawn shapes (rect/ellipse drawn by draw tool) are pure JointJS SVG – no HTML overlay needed
         if (nodeData.category === 'drawn_shape') return null;
-
         let val = 0;
         const boundedKey = nodeData.boundTag || nodeData.tagKey;
         if (boundedKey && tags[boundedKey] !== undefined) val = tags[boundedKey].value;
