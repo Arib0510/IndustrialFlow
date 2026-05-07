@@ -17,7 +17,6 @@ import {
   Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown,
   Square, Circle, Minus, Type, Image, Hexagon,
 } from 'lucide-react';
-import { normalizeSortedCells } from '../utils/drawingUtils';
 
 // Returns a short label for a cell
 const getCellLabel = (data, cellType, isLink) => {
@@ -82,26 +81,12 @@ export const LayersPanel = ({
 
   const moveUp = (e, id) => {
     e.stopPropagation();
-    const cell = graph.getCell(id);
-    if (!cell) return;
-    const sorted = normalizeSortedCells(graph);
-    const idx = sorted.findIndex(c => c.id === id);
-    if (idx >= 0 && idx < sorted.length - 1) {
-      sorted[idx].set('z', idx + 1);
-      sorted[idx + 1].set('z', idx);
-    }
+    graph.getCell(id)?.toFront();
   };
 
   const moveDown = (e, id) => {
     e.stopPropagation();
-    const cell = graph.getCell(id);
-    if (!cell) return;
-    const sorted = normalizeSortedCells(graph);
-    const idx = sorted.findIndex(c => c.id === id);
-    if (idx > 0) {
-      sorted[idx].set('z', idx - 1);
-      sorted[idx - 1].set('z', idx);
-    }
+    graph.getCell(id)?.toBack();
   };
 
   if (cells.length === 0) {

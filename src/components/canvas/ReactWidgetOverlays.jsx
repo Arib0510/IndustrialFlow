@@ -1,317 +1,489 @@
 import React, { useContext, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle } from "lucide-react";
 import { SCADAContext } from "../../context/SCADAContext";
 import { ResizeOverlay } from "./ResizeOverlay";
 import { GaugeWidget } from "./GaugeWidget";
 
-// ─── Industrial Hardware UI Components ─────────────────────────────────────
+// ── Shared primitives ─────────────────────────────────────────────────────────
 
-const Screw = ({ style }) => (
-  <div style={{
-    width: 6, height: 6, borderRadius: '50%',
-    background: 'linear-gradient(135deg, #e2e8f0, #64748b)',
-    border: '1px solid #334155',
-    boxShadow: 'inset 1px 1px 2px #fff, 1px 1px 2px rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    position: 'absolute', ...style
+const Panel = ({ children, style, className = '', showBorder = true, bgColor }) => (
+  <div className={className} style={{
+    backgroundColor: bgColor || 'var(--bg-panel)',
+    border: showBorder ? '1px solid var(--border)' : 'none',
+    borderRadius: 'var(--radius-md)',
+    boxShadow: showBorder ? 'var(--shadow-sm)' : 'none',
+    overflow: 'hidden',
+    ...style,
   }}>
-    <div style={{ width: '80%', height: 1, background: '#334155', transform: 'rotate(45deg)' }} />
-  </div>
-);
-
-const HardwarePanel = ({ isDarkMode, children, style, className = '' }) => {
-  const bg = isDarkMode 
-    ? 'linear-gradient(135deg, #334155 0%, #0f172a 100%)' 
-    : 'linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)'; 
-  const borderTop = isDarkMode ? '#475569' : '#ffffff';
-  const borderBottom = isDarkMode ? '#020617' : '#94a3b8';
-  
-  return (
-    <div className={className} style={{
-      ...style,
-      background: bg,
-      borderTop: `2px solid ${borderTop}`,
-      borderLeft: `2px solid ${borderTop}`,
-      borderBottom: `2px solid ${borderBottom}`,
-      borderRight: `2px solid ${borderBottom}`,
-      borderRadius: '2px',
-      boxShadow: '4px 4px 10px rgba(0,0,0,0.4)',
-      // NOTE: Do NOT override position here — the spread ...style already sets
-      // position: 'absolute' with left/top from JointJS model coords.
-      // Setting position: 'relative' here would break alignment for all widgets.
-    }}>
-      <Screw style={{ top: 4, left: 4 }} />
-      <Screw style={{ top: 4, right: 4 }} />
-      <Screw style={{ bottom: 4, left: 4 }} />
-      <Screw style={{ bottom: 4, right: 4 }} />
-      {children}
-    </div>
-  );
-};
-
-const EngravedLabel = ({ isDarkMode, children, className = '' }) => (
-  <div className={`text-[10px] font-bold uppercase tracking-widest truncate w-full text-center mb-2 px-2 ${className}`} 
-       style={{ 
-         color: isDarkMode ? '#94a3b8' : '#475569',
-         textShadow: isDarkMode ? '1px 1px 1px #000' : '1px 1px 1px #fff'
-       }}>
     {children}
   </div>
 );
 
-// ─── Main Overlays Engine ──────────────────────────────────────────────────
+const CardLabel = ({ children }) => (
+  <div style={{
+    fontSize: 9, fontWeight: 700, letterSpacing: '0.09em',
+    textTransform: 'uppercase', color: 'var(--text-muted)',
+    textAlign: 'center', padding: '6px 6px 2px',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  }}>
+    {children}
+  </div>
+);
+
+const statusColor = (val, low = 20, mid = 50) =>
+  val > mid ? 'var(--status-ok)' : val > low ? 'var(--status-warn)' : 'var(--status-error)';
+
+// ── Main overlay engine ───────────────────────────────────────────────────────
+
 export const ReactWidgetOverlays = ({ graph, nodes, history, selectedCellId, paperRef }) => {
   const { tags, writeTag, isSimulating, isDarkMode } = useContext(SCADAContext);
   const transformRef = useRef(null);
 
   useEffect(() => {
     let animId;
-    const syncTransform = () => {
+    const sync = () => {
       if (paperRef?.current && transformRef.current) {
         const { sx, sy } = paperRef.current.scale();
         const { tx, ty } = paperRef.current.translate();
-        transformRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
+        transformRef.current.style.transform = `translate(${tx}px,${ty}px) scale(${sx},${sy})`;
       }
-      animId = requestAnimationFrame(syncTransform);
+      animId = requestAnimationFrame(sync);
     };
-    syncTransform();
+    sync();
     return () => cancelAnimationFrame(animId);
   }, [paperRef]);
 
-  const tooltipStyle = { backgroundColor: '#0f172a', borderColor: '#334155', fontSize: '10px', color: '#f8fafc' };
+  const chartTooltipStyle = {
+    backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border)',
+    fontSize: 10, color: 'var(--text-primary)',
+  };
 
   return (
-    <div className="absolute inset-0 z-[5] pointer-events-none">
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
       <div ref={transformRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0' }}>
         {nodes.map(nodeData => {
-        // Drawn shapes (rect/ellipse drawn by draw tool) are pure JointJS SVG – no HTML overlay needed
-        if (nodeData.category === 'drawn_shape') return null;
-        let val = 0;
-        const boundedKey = nodeData.boundTag || nodeData.tagKey;
-        if (boundedKey && tags[boundedKey] !== undefined) val = tags[boundedKey].value;
+          if (nodeData.category === 'drawn_shape') return null;
 
-        const pos = nodeData.position || { x: 0, y: 0 };
-        const size = nodeData.size || { width: 120, height: 80 };
-        const angle = nodeData.angle || 0;
-        const color = nodeData.color || '#3B82F6';
-        const name = nodeData.name || '';
-        const unit = nodeData.unit || '';
+          // ── Resolve tag value ───────────────────────────────────────────
+          let rawVal = 0;
+          const boundedKey = nodeData.boundTag || nodeData.tagKey;
+          if (boundedKey && tags[boundedKey] !== undefined) rawVal = tags[boundedKey].value;
 
-        const style = {
-          position: 'absolute', left: pos.x, top: pos.y, width: size.width, height: size.height,
-          transform: `rotate(${angle}deg)`, pointerEvents: 'none'
-        };
+          // Apply optional scale/offset transform (for numeric widgets)
+          const scale  = nodeData.tagScale  ?? 1;
+          const offset = nodeData.tagOffset ?? 0;
+          const val    = typeof rawVal === 'number' ? rawVal * scale + offset : rawVal;
 
-        if (nodeData.category === 'line_chart' || nodeData.category === 'bar_chart') {
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col p-2">
-              <EngravedLabel isDarkMode={isDarkMode}>{name || "Chart"}</EngravedLabel>
-              <div className="flex-1 min-h-0 w-full overflow-hidden" style={{ background: '#020617', border: 'inset 2px #000', borderRadius: 2 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  {nodeData.category === 'line_chart' ? (
-                    <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <XAxis dataKey="time" hide={true} />
-                      <YAxis stroke="#475569" tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['auto', 'auto']} />
-                      <Tooltip contentStyle={tooltipStyle} itemStyle={{ color }} />
-                      <Line type="stepAfter" dataKey={boundedKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
-                    </LineChart>
-                  ) : (
-                    <BarChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <XAxis dataKey="time" hide={true} />
-                      <YAxis stroke="#475569" tick={{ fontSize: 10, fill: '#94a3b8' }} domain={[0, 'auto']} />
-                      <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.05)' }} itemStyle={{ color }} />
-                      <Bar dataKey={boundedKey} fill={color} isAnimationActive={false} />
-                    </BarChart>
-                  )}
-                </ResponsiveContainer>
-              </div>
-            </HardwarePanel>
-          );
-        }
+          const pos   = nodeData.position || { x: 0, y: 0 };
+          const size  = nodeData.size     || { width: 120, height: 80 };
+          const angle = nodeData.angle    || 0;
+          const color = nodeData.color    || '#3B82F6';
+          const name  = nodeData.name     || '';
+          const unit  = nodeData.unit     || '';
 
-        if (nodeData.category === 'gauge_dial') {
-          return (
-            <div key={nodeData.id} style={{ ...style, pointerEvents: 'auto' }}>
-              <HardwarePanel isDarkMode={isDarkMode} style={{ width: '100%', height: '100%', borderRadius: '50%' }}>
-                <GaugeWidget node={nodeData} />
-              </HardwarePanel>
-            </div>
-          );
-        }
+          // Widget appearance settings
+          const showLabel  = nodeData.showLabel  !== false;
+          const showBorder = nodeData.showBorder !== false;
+          const bgColor    = nodeData.bgColor    || undefined;
+          const decimals   = nodeData.decimals   ?? 1;
 
-        if (['tank_level', 'motor_status', 'valve_control'].includes(nodeData.category)) {
-          let text = "";
-          let bg = isDarkMode ? '#1e293b' : '#f8fafc';
-          let textColor = isDarkMode ? '#f8fafc' : '#0f172a';
-          
-          if (nodeData.category === 'tank_level') text = `${Number(Math.max(0, Math.min(100, val || 0))).toFixed(1)} ${unit || '%'}`;
-          else if (nodeData.category === 'motor_status') { text = val ? "RUNNING" : "STOPPED"; textColor = val ? '#22C55E' : '#EF4444'; }
-          else if (nodeData.category === 'valve_control') { text = val ? "OPEN" : "CLOSED"; textColor = val ? '#22C55E' : '#EF4444'; }
-
-          return (
-            <div key={nodeData.id} style={style} className="flex flex-col items-center justify-center pointer-events-none">
-              <div className="relative px-3 py-1 mt-6 shadow-lg" style={{ background: bg, border: '1px solid #475569', borderRadius: 2 }}>
-                <Screw style={{ top: 2, left: 2, width: 4, height: 4 }} />
-                <Screw style={{ top: 2, right: 2, width: 4, height: 4 }} />
-                <Screw style={{ bottom: 2, left: 2, width: 4, height: 4 }} />
-                <Screw style={{ bottom: 2, right: 2, width: 4, height: 4 }} />
-                <div className="text-[10px] font-mono font-bold" style={{ color: textColor, textShadow: '0 0 2px rgba(0,0,0,0.5)' }}>{text}</div>
-              </div>
-            </div>
-          );
-        }
-
-        if (nodeData.category === 'progress_bar') {
-          const pcent = Math.max(0, Math.min(100, val || 0));
-          const segments = 12;
-          const activeSegments = Math.round((pcent / 100) * segments);
-          
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-3">
-              <EngravedLabel isDarkMode={isDarkMode} className="text-left">{name}</EngravedLabel>
-              <div className="w-full h-6 flex gap-1 p-1" style={{ background: '#020617', border: 'inset 2px #000', borderRadius: 2 }}>
-                {Array.from({ length: segments }).map((_, i) => (
-                  <div key={i} className="flex-1 h-full transition-all duration-300" style={{ 
-                    background: i < activeSegments ? color : '#1e293b',
-                    boxShadow: i < activeSegments ? `0 0 8px ${color}` : 'none',
-                    opacity: i < activeSegments ? 1 : 0.3,
-                    borderRadius: 1
-                  }} />
-                ))}
-              </div>
-              <div className="text-[12px] font-mono font-bold mt-2 text-right" style={{ color: color, textShadow: `0 0 5px ${color}` }}>
-                {Number(val).toFixed(1)} {unit}
-              </div>
-            </HardwarePanel>
-          );
-        }
-
-        if (nodeData.category === 'digital_readout') {
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
-              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
-              <div className="mx-2 p-1" style={{ background: '#022c22', border: 'inset 3px #000', borderRadius: 2 }}>
-                <div className="text-[24px] font-mono font-bold leading-none" style={{ color, textShadow: `0px 0px 8px ${color}` }}>
-                  {Number(val).toFixed(1)} <span className="text-[10px]">{unit}</span>
-                </div>
-              </div>
-            </HardwarePanel>
-          );
-        }
-
-        if (nodeData.category === 'temp_display') {
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 text-center">
-              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
-              <div className="text-[24px] font-sans font-black leading-none drop-shadow-md" style={{ color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
-                {typeof val === 'string' ? val : Number(val).toFixed(1)} <span className="text-sm">{unit}</span>
-              </div>
-            </HardwarePanel>
-          );
-        }
-
-        if (nodeData.category === 'toggle_switch') {
-          const isON = !!val;
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex items-center p-3 gap-2">
-              <div className="flex-1 flex flex-col items-center">
-                <EngravedLabel isDarkMode={isDarkMode} className="mb-0">{name}</EngravedLabel>
-                <div className="text-[10px] font-bold" style={{ color: isON ? '#22C55E' : '#EF4444' }}>{isON ? "ON" : "OFF"}</div>
-              </div>
-              <div 
-                onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, !isON); }}
-                style={{ 
-                  pointerEvents: 'auto', width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
-                  background: 'radial-gradient(circle at 30% 30%, #64748b, #0f172a)', 
-                  border: '2px solid #334155', boxShadow: '0 4px 6px rgba(0,0,0,0.8), inset 0 2px 4px rgba(255,255,255,0.3)',
-                  transform: isON ? 'rotate(45deg)' : 'rotate(-45deg)', transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-                }}
-                className="relative shrink-0"
-              >
-                <div style={{ position: 'absolute', top: 2, left: '50%', marginLeft: -3, width: 6, height: 14, background: isON ? '#22C55E' : '#EF4444', borderRadius: '3px', boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8)' }} />
-              </div>
-            </HardwarePanel>
-          );
-        }
-
-        if (nodeData.category === 'value_control') {
-          const btnStyle = {
-             width: 28, height: 28, borderRadius: '50%', pointerEvents: 'auto', cursor: 'pointer',
-             background: 'linear-gradient(135deg, #ef4444, #991b1b)', border: '2px solid #7f1d1d',
-             boxShadow: '0 3px 5px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.4)',
-             color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          const baseStyle = {
+            position: 'absolute', left: pos.x, top: pos.y,
+            width: size.width, height: size.height,
+            transform: `rotate(${angle}deg)`, pointerEvents: 'none',
+            opacity: nodeData.opacity ?? 1,
           };
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
-              <div className="flex items-center gap-2">
-                <button style={btnStyle} onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) - 1); }}>-</button>
-                <div className="w-12 py-1 text-center font-mono font-bold text-[14px]" style={{ background: '#020617', border: 'inset 2px #000', color: '#3B82F6', textShadow: '0 0 5px #3b82f6' }}>
-                  {Number(val).toFixed(0)}
-                </div>
-                <button style={{...btnStyle, background: 'linear-gradient(135deg, #22c55e, #166534)', border: '2px solid #14532d'}} onClick={(e) => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Number(val) + 1); }}>+</button>
-              </div>
-            </HardwarePanel>
-          );
-        }
 
-        if (nodeData.category === 'status_led') {
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col items-center justify-center p-2">
-              <EngravedLabel isDarkMode={isDarkMode}>{name}</EngravedLabel>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%', border: '3px solid #334155', position: 'relative',
-                background: val ? `radial-gradient(circle at 30% 30%, #fff, ${color} 40%, #000)` : 'radial-gradient(circle at 30% 30%, #64748b, #0f172a)',
-                boxShadow: val ? `0 0 20px ${color}, inset 0 -4px 8px rgba(0,0,0,0.6)` : 'inset 0 -4px 8px rgba(0,0,0,0.6)',
+          // ── Tank Level ────────────────────────────────────────────────────
+          if (nodeData.category === 'tank_level') {
+            const level = Math.max(0, Math.min(100, Number(val) || 0));
+            const sc    = statusColor(level, 15, 30);
+            const bodyH = 72;
+            const fillH = (level / 100) * bodyH;
+            const fillY = 6 + bodyH - fillH;
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 6px 6px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <svg viewBox="0 0 60 90" style={{ flex: 1, width: '100%', overflow: 'visible' }}>
+                    <rect x="8" y="6" width="44" height={bodyH} rx="2" stroke="var(--border)" strokeWidth="1.5" fill="var(--bg-subtle)" />
+                    {fillH > 0 && (
+                      <rect x="9.5" y={fillY} width="41" height={fillH} rx="1" fill={sc} opacity="0.22" />
+                    )}
+                    <line x1="9.5" y1={fillY} x2="50.5" y2={fillY} stroke={sc} strokeWidth="1" />
+                    {[25, 50, 75].map(p => (
+                      <line key={p} x1="8" y1={6 + (1 - p / 100) * bodyH} x2="13" y2={6 + (1 - p / 100) * bodyH} stroke="var(--text-muted)" strokeWidth="0.75" opacity="0.5" />
+                    ))}
+                    <line x1="2"  y1="68" x2="8"  y2="68" stroke="var(--border)" strokeWidth="2" />
+                    <line x1="52" y1="68" x2="58" y2="68" stroke="var(--border)" strokeWidth="2" />
+                    <text x="30" y="87" textAnchor="middle" fontSize="8" fill={sc} fontFamily="JetBrains Mono, Geist Mono, monospace" fontWeight="700">
+                      {level.toFixed(decimals)}{unit || '%'}
+                    </text>
+                  </svg>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Motor / Pump ──────────────────────────────────────────────────
+          if (nodeData.category === 'motor_status') {
+            const running = !!val;
+            const sc      = running ? 'var(--status-ok)' : 'var(--status-error)';
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '6px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <svg viewBox="0 0 60 60" style={{ width: '70%', height: 'auto' }}>
+                    <circle cx="30" cy="30" r="22" stroke="var(--border)" strokeWidth="1.5" fill="var(--bg-subtle)" />
+                    <g style={{ transformOrigin: '30px 30px', animation: running ? 'spin 1.2s linear infinite' : 'none' }}>
+                      {[0, 60, 120, 180, 240, 300].map(deg => (
+                        <rect key={deg} x="28" y="10" width="4" height="12" rx="2" fill={sc} opacity="0.6" transform={`rotate(${deg} 30 30)`} />
+                      ))}
+                    </g>
+                    <circle cx="30" cy="30" r="6" fill="var(--bg-panel)" stroke="var(--border)" strokeWidth="1.5" />
+                    <circle cx="30" cy="30" r="2" fill={sc} />
+                    <line x1="30" y1="52" x2="30" y2="58" stroke="var(--border)" strokeWidth="2.5" />
+                    <line x1="52" y1="30" x2="58" y2="30" stroke="var(--border)" strokeWidth="2.5" />
+                  </svg>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: sc, marginTop: 4, letterSpacing: '0.05em' }}>
+                    {running ? 'RUNNING' : 'STOPPED'}
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Control Valve ─────────────────────────────────────────────────
+          if (nodeData.category === 'valve_control') {
+            const open = !!val;
+            const sc   = open ? 'var(--status-ok)' : 'var(--status-error)';
+            const opac = open ? 0.5 : 0.12;
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '6px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <svg viewBox="0 0 80 80" style={{ width: '85%', height: 'auto' }}>
+                    <polygon points="8,14 8,66 40,40"  fill={sc} opacity={opac} stroke={sc} strokeWidth="1.5" strokeLinejoin="round" />
+                    <polygon points="72,14 72,66 40,40" fill={sc} opacity={opac} stroke={sc} strokeWidth="1.5" strokeLinejoin="round" />
+                    <line x1="40" y1="14" x2="40" y2="5" stroke="var(--border)" strokeWidth="2" />
+                    <ellipse cx="40" cy="4" rx="8" ry="3" fill="none" stroke="var(--border)" strokeWidth="1.5" />
+                    <line x1="1"  y1="40" x2="8"  y2="40" stroke="var(--border)" strokeWidth="3" />
+                    <line x1="72" y1="40" x2="79" y2="40" stroke="var(--border)" strokeWidth="3" />
+                  </svg>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: sc, marginTop: 2, letterSpacing: '0.05em' }}>
+                    {open ? 'OPEN' : 'CLOSED'}
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Capacity Bar ──────────────────────────────────────────────────
+          if (nodeData.category === 'progress_bar') {
+            const pct    = Math.max(0, Math.min(100, Number(val) || 0));
+            const segs   = 10;
+            const active = Math.round((pct / 100) * segs);
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '6px 10px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <div style={{ display: 'flex', gap: 3, height: 18, padding: '0 2px' }}>
+                    {Array.from({ length: segs }).map((_, i) => (
+                      <div key={i} style={{
+                        flex: 1, height: '100%', borderRadius: 2,
+                        backgroundColor: i < active ? color : 'var(--bg-subtle)',
+                        border: '1px solid var(--border)',
+                        boxShadow: i < active ? `0 0 5px ${color}55` : 'none',
+                        transition: 'background-color 0.3s',
+                      }} />
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 700, textAlign: 'right', marginTop: 4, fontFamily: 'JetBrains Mono, Geist Mono, monospace', color }}>
+                    {Number(val).toFixed(decimals)} {unit}
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Gauge Dial ────────────────────────────────────────────────────
+          if (nodeData.category === 'gauge_dial') {
+            return (
+              <div key={nodeData.id} style={{ ...baseStyle, pointerEvents: 'auto' }}>
+                <Panel style={{ width: '100%', height: '100%', borderRadius: '50%' }} showBorder={showBorder} bgColor={bgColor}>
+                  <GaugeWidget node={nodeData} />
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Digital Readout / LCD ─────────────────────────────────────────
+          if (nodeData.category === 'digital_readout') {
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4px 8px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <div style={{
+                    margin: '0 2px', padding: '5px 8px',
+                    backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontFamily: 'JetBrains Mono, Geist Mono, monospace',
+                    fontSize: 22, fontWeight: 700, color,
+                    textAlign: 'center', letterSpacing: '0.04em',
+                  }}>
+                    {Number(val).toFixed(decimals)}
+                    <span style={{ fontSize: 9, fontWeight: 400, opacity: 0.7, marginLeft: 4 }}>{unit}</span>
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Numeric / Temp Display ────────────────────────────────────────
+          if (nodeData.category === 'temp_display') {
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '4px 8px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <div style={{ fontFamily: 'JetBrains Mono, Geist Mono, monospace', fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, letterSpacing: '-0.01em' }}>
+                    {typeof val === 'string' ? val : Number(val).toFixed(decimals)}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{unit}</div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Toggle Switch ─────────────────────────────────────────────────
+          if (nodeData.category === 'toggle_switch') {
+            const isON = !!val;
+            const sc   = isON ? 'var(--status-ok)' : 'var(--text-muted)';
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px' }} showBorder={showBorder} bgColor={bgColor}>
+                  <div>
+                    {showLabel && <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{name}</div>}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: sc, marginTop: 2 }}>{isON ? 'ON' : 'OFF'}</div>
+                  </div>
+                  <div
+                    onClick={e => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, !isON); }}
+                    style={{
+                      width: 44, height: 24, borderRadius: 12, flexShrink: 0,
+                      backgroundColor: isON ? 'var(--status-ok)' : 'var(--bg-subtle)',
+                      border: `1px solid ${isON ? 'var(--status-ok)' : 'var(--border)'}`,
+                      position: 'relative', cursor: 'pointer',
+                      transition: 'background-color 0.2s, border-color 0.2s',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: 3, left: isON ? 23 : 3,
+                      width: 16, height: 16, borderRadius: 8,
+                      backgroundColor: 'white', boxShadow: 'var(--shadow-sm)',
+                      transition: 'left 0.2s cubic-bezier(0.4,0,0.2,1)',
+                    }} />
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Value / Setpoint Control ──────────────────────────────────────
+          if (nodeData.category === 'value_control') {
+            const step = nodeData.step ?? 1;
+            const minV = nodeData.min  ?? -Infinity;
+            const maxV = nodeData.max  ??  Infinity;
+
+            const btnBase = {
+              width: 28, height: 28, borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)', cursor: 'pointer',
+              backgroundColor: 'var(--bg-subtle)', color: 'var(--text-primary)',
+              fontWeight: 700, fontSize: 17, lineHeight: 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              pointerEvents: 'auto', flexShrink: 0,
+            };
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '6px 10px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button style={btnBase}
+                      onClick={e => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Math.max(minV, Number(rawVal) - step)); }}>
+                      −
+                    </button>
+                    <div style={{
+                      minWidth: 56, padding: '3px 8px', textAlign: 'center',
+                      fontFamily: 'JetBrains Mono, Geist Mono, monospace',
+                      fontWeight: 700, fontSize: 15, color: 'var(--text-primary)',
+                      backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                    }}>
+                      {Number(rawVal).toFixed(decimals)}
+                      {unit && <span style={{ fontSize: 9, fontWeight: 400, marginLeft: 2, opacity: 0.7 }}>{unit}</span>}
+                    </div>
+                    <button style={btnBase}
+                      onClick={e => { e.stopPropagation(); if (boundedKey) writeTag(boundedKey, Math.min(maxV, Number(rawVal) + step)); }}>
+                      +
+                    </button>
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Status LED ────────────────────────────────────────────────────
+          if (nodeData.category === 'status_led') {
+            const lit = !!val;
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px' }} showBorder={showBorder} bgColor={bgColor}>
+                  <div style={{
+                    width: 34, height: 34, borderRadius: '50%',
+                    backgroundColor: lit ? color : 'var(--bg-subtle)',
+                    border: `2px solid ${lit ? color : 'var(--border)'}`,
+                    boxShadow: lit ? `0 0 14px ${color}55` : 'none',
+                    transition: 'all 0.3s', position: 'relative', overflow: 'hidden',
+                  }}>
+                    {lit && (
+                      <div style={{ position: 'absolute', top: '12%', left: '18%', width: '40%', height: '30%', borderRadius: '50%', background: 'rgba(255,255,255,0.5)', transform: 'rotate(-35deg)' }} />
+                    )}
+                  </div>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Battery Level ─────────────────────────────────────────────────
+          if (nodeData.category === 'battery_level') {
+            const level  = Math.max(0, Math.min(100, Number(val) || 0));
+            const sc     = statusColor(level, 20, 50);
+            const fillPx = (level / 100) * 42;
+
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 10px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name}</CardLabel>}
+                  <svg viewBox="0 0 72 34" style={{ width: '88%', height: 'auto' }}>
+                    <rect x="1" y="4" width="58" height="26" rx="3" stroke="var(--border)" strokeWidth="1.5" fill="var(--bg-subtle)" />
+                    <rect x="59" y="11" width="9" height="12" rx="2" fill="var(--border)" />
+                    {fillPx > 0 && (
+                      <rect x="3" y="6" width={fillPx} height="22" rx="2" fill={sc} opacity="0.6" />
+                    )}
+                    {[16, 30, 43].filter(x => x < 2 + fillPx).map(x => (
+                      <line key={x} x1={x} y1="6" x2={x} y2="28" stroke="var(--bg-panel)" strokeWidth="1" opacity="0.4" />
+                    ))}
+                    <text x="30" y="21" textAnchor="middle" fontSize="9" fill={sc} fontFamily="JetBrains Mono, Geist Mono, monospace" fontWeight="700">
+                      {level.toFixed(0)}%
+                    </text>
+                  </svg>
+                </Panel>
+              </div>
+            );
+          }
+
+          // ── Alert Banner ──────────────────────────────────────────────────
+          if (nodeData.category === 'alert_banner') {
+            const active = !!val;
+            const ac     = active ? 'var(--status-error)' : 'var(--status-ok)';
+            const msg    = nodeData.alertMsg || (active ? 'HAZARD DETECTED' : 'SYSTEM SAFE');
+
+            return (
+              <div key={nodeData.id} style={{
+                ...baseStyle,
+                backgroundColor: bgColor || 'var(--bg-panel)',
+                border: `1px solid ${active ? 'var(--status-error)' : 'var(--border)'}`,
+                borderLeft: `3px solid ${ac}`,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: active ? '0 0 18px rgba(239,68,68,0.2)' : 'var(--shadow-sm)',
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', transition: 'all 0.3s',
               }}>
-                <div style={{ position: 'absolute', top: '10%', left: '15%', width: '45%', height: '35%', background: 'linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0))', borderRadius: '50%', transform: 'rotate(-45deg)' }} />
+                <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, backgroundColor: ac, animation: active ? 'live-pulse 1s infinite' : 'none', boxShadow: active ? '0 0 8px var(--status-error)' : 'none' }} />
+                <div style={{ minWidth: 0 }}>
+                  {showLabel && <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{name}</div>}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: ac, fontFamily: 'monospace', marginTop: 1 }}>
+                    {msg}
+                  </div>
+                </div>
               </div>
-            </HardwarePanel>
-          );
-        }
+            );
+          }
 
-        if (nodeData.category === 'alert_banner') {
-          return (
-            <div key={nodeData.id} style={{ 
-              ...style, 
-              background: val ? 'repeating-linear-gradient(45deg, #fbbf24, #fbbf24 15px, #000 15px, #000 30px)' : '#1e293b',
-              border: val ? '4px solid #ef4444' : '4px solid #334155', 
-              boxShadow: val ? '0 0 20px rgba(239, 68, 68, 0.8)' : 'none',
-              borderRadius: 4
-            }} className="flex items-center p-2 gap-3 transition-all theme-transition">
-              <div style={{ width: 24, height: 24, borderRadius: '50%', background: val ? 'radial-gradient(circle, #ffaaaa, #ef4444)' : '#475569', boxShadow: val ? '0 0 15px #ef4444' : 'none' }} className={val ? "animate-pulse shrink-0" : "shrink-0"} />
-              <div className="flex flex-col bg-black/60 px-2 py-1 rounded backdrop-blur-sm">
-                <div className="text-[10px] font-bold text-white uppercase tracking-widest">{name}</div>
-                <div className="text-[14px] font-black" style={{ color: val ? '#ef4444' : '#22C55E' }}>{val ? "HAZARD DETECTED" : "SYSTEM SAFE"}</div>
+          // ── Header Text ───────────────────────────────────────────────────
+          if (nodeData.category === 'header_text') {
+            return (
+              <div key={nodeData.id} style={{ ...baseStyle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: 24, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.01em', color: 'var(--text-primary)', userSelect: 'none' }}>
+                  {name}
+                </span>
               </div>
-            </div>
-          );
-        }
+            );
+          }
 
-        if (nodeData.category === 'header_text') {
-          return (
-            <div key={nodeData.id} style={style} className="flex items-center justify-center">
-              <span className="text-[28px] font-sans font-black uppercase tracking-widest" 
-                    style={{ color: isDarkMode ? '#1e293b' : '#cbd5e1', textShadow: isDarkMode ? '1px 1px 2px rgba(255,255,255,0.1), -1px -1px 2px rgba(0,0,0,0.8)' : '1px 1px 2px #fff, -1px -1px 2px rgba(0,0,0,0.2)' }}>
-                {name}
-              </span>
-            </div>
-          );
-        }
+          // ── Charts ────────────────────────────────────────────────────────
+          if (nodeData.category === 'line_chart' || nodeData.category === 'bar_chart') {
+            return (
+              <div key={nodeData.id} style={baseStyle}>
+                <Panel style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', padding: '4px 2px 2px' }} showBorder={showBorder} bgColor={bgColor}>
+                  {showLabel && <CardLabel>{name || 'Chart'}</CardLabel>}
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      {nodeData.category === 'line_chart' ? (
+                        <LineChart data={history} margin={{ top: 6, right: 8, left: -22, bottom: 0 }}>
+                          <XAxis dataKey="time" hide />
+                          <YAxis stroke="var(--border)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} domain={['auto', 'auto']} />
+                          <Tooltip contentStyle={chartTooltipStyle} itemStyle={{ color }} />
+                          <Line type="stepAfter" dataKey={boundedKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
+                        </LineChart>
+                      ) : (
+                        <BarChart data={history} margin={{ top: 6, right: 8, left: -22, bottom: 0 }}>
+                          <XAxis dataKey="time" hide />
+                          <YAxis stroke="var(--border)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} domain={[0, 'auto']} />
+                          <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: 'var(--bg-hover)' }} itemStyle={{ color }} />
+                          <Bar dataKey={boundedKey} fill={color} isAnimationActive={false} />
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+                </Panel>
+              </div>
+            );
+          }
 
-        if (nodeData.category === 'tagNode') {
-          return (
-            <HardwarePanel isDarkMode={isDarkMode} key={nodeData.id} style={style} className="flex flex-col justify-center p-2 border-l-4 border-l-amber-500">
-              <div className="text-[10px] font-bold font-mono truncate mb-1" style={{ color: '#F59E0B' }}>{boundedKey || 'NO TAG'}</div>
-              <div className="text-[16px] font-sans font-black truncate" style={{ color: isDarkMode ? '#f8fafc' : '#0f172a' }}>{val !== undefined ? val.toString() : '---'}</div>
-            </HardwarePanel>
-          );
-        }
+          // ── Tag Node ──────────────────────────────────────────────────────
+          if (nodeData.category === 'tagNode') {
+            return (
+              <div key={nodeData.id} style={{
+                ...baseStyle,
+                backgroundColor: bgColor || 'var(--bg-panel)',
+                border: showBorder ? '1px solid var(--border)' : 'none',
+                borderLeft: '2px solid var(--accent)',
+                borderRadius: 'var(--radius-md)',
+                padding: '6px 10px',
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                boxShadow: showBorder ? 'var(--shadow-sm)' : 'none',
+              }}>
+                <div style={{ fontSize: 9, fontFamily: 'JetBrains Mono, Geist Mono, monospace', color: 'var(--accent)', fontWeight: 700, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {boundedKey || 'NO TAG'}
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, Geist Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {rawVal !== undefined ? rawVal.toString() : '—'}
+                </div>
+              </div>
+            );
+          }
 
-        return null;
-      })}
+          return null;
+        })}
       </div>
+
       {selectedCellId && nodes.find(n => n.id === selectedCellId) && !isSimulating && (
         <ResizeOverlay graph={graph} node={nodes.find(n => n.id === selectedCellId)} paperRef={paperRef} />
       )}

@@ -11,6 +11,7 @@
  *   Ctrl+D          → Duplicate selection
  *   Delete/Backspace→ Delete selected cell(s)
  *   Escape          → Deselect / cancel draw tool
+ *   Enter           → Close polygon (commit vertices)
  */
 
 import { useEffect } from 'react';

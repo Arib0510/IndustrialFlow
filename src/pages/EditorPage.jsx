@@ -17,12 +17,13 @@
 import React, { useState, useRef, useContext, useEffect, useMemo, useCallback } from 'react';
 import * as joint from 'jointjs';
 import { v4 as uuidv4 } from 'uuid';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Square } from 'lucide-react';
 
 import { SCADAContext }         from '../context/SCADAContext';
 import { ReactWidgetOverlays }  from '../components/canvas/ReactWidgetOverlays';
 import { SelectionOverlay }     from '../components/canvas/SelectionOverlay';
 import Minimap                  from '../components/canvas/Minimap';
+import TagBrowserFloat          from '../components/canvas/TagBrowserFloat';
 import BuildCustomNodeModal     from '../components/modals/BuildCustomNodeModal';
 import AddDeviceModal           from '../components/modals/AddDeviceModal';
 
@@ -59,7 +60,7 @@ ImageFileInput.displayName = 'ImageFileInput';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const EditorPage = () => {
-  const { tags, history, isSimulating, isDarkMode, devices, setDevices } = useContext(SCADAContext);
+  const { tags, history, isSimulating, isDarkMode, devices, setDevices, setSimulating } = useContext(SCADAContext);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const canvasRef          = useRef(null);
@@ -95,7 +96,9 @@ export const EditorPage = () => {
   const [selectedCellIds,       setSelectedCellIds]       = useState([]);   // Phase 6
   const [gridVisible,           setGridVisible]           = useState(true);
   const [snapEnabled,           setSnapEnabled]           = useState(true);
-  const [canvasBg,              setCanvasBg]              = useState(isDarkMode ? '#0B0F19' : '#EEF2F6');
+  const [canvasBg,              setCanvasBg]              = useState(isDarkMode ? '#0A0A0A' : '#FAFAFA');
+  const [runtimeSecs,           setRuntimeSecs]           = useState(0);
+  const runtimeRef              = useRef(null);
   const [cellData,              setCellData]              = useState([]);
   const [showBuildModal,        setShowBuildModal]        = useState(false);
   const [showAddDevice,         setShowAddDevice]         = useState(false);
@@ -105,6 +108,9 @@ export const EditorPage = () => {
   // Phase 5 — undo/redo availability flags (drive button disabled states)
   const [canUndo,               setCanUndo]               = useState(false);
   const [canRedo,               setCanRedo]               = useState(false);
+  // UI state — zoom level + canvas cursor coords
+  const [zoomLevel,             setZoomLevel]             = useState(100);
+  const [cursorPos,             setCursorPos]             = useState({ x: 0, y: 0 });
   // Phase 6 — rubber-band rect for SelectionOverlay
   const [rubberRect,            setRubberRect]            = useState(null);
   const [isRubberBandActive,    setIsRubberBandActive]    = useState(false);
@@ -121,7 +127,18 @@ export const EditorPage = () => {
   // Sync ref → state
   useEffect(() => { isPanModeRef.current  = isPanMode;    }, [isPanMode]);
   useEffect(() => { activeDrawToolRef.current = activeDrawTool; }, [activeDrawTool]);
-  useEffect(() => { setCanvasBg(isDarkMode ? '#0B0F19' : '#EEF2F6'); }, [isDarkMode]);
+  useEffect(() => { setCanvasBg(isDarkMode ? '#0A0A0A' : '#FAFAFA'); }, [isDarkMode]);
+
+  // Runtime elapsed counter — starts/stops with simulation
+  useEffect(() => {
+    if (isSimulating) {
+      setRuntimeSecs(0);
+      runtimeRef.current = setInterval(() => setRuntimeSecs(s => s + 1), 1000);
+    } else {
+      clearInterval(runtimeRef.current);
+    }
+    return () => clearInterval(runtimeRef.current);
+  }, [isSimulating]);
 
   // ── History availability poll ─────────────────────────────────────────────
   const refreshHistoryFlags = useCallback(() => {
@@ -202,6 +219,17 @@ export const EditorPage = () => {
     setPolyPreviewVerts([]);
     setActiveDrawTool(null);
   }, [isDarkMode]);
+
+  const handleCanvasMouseMove = useCallback((e) => {
+    if (!canvasRef.current || !paperRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const { tx, ty } = paperRef.current.translate();
+    const { sx }     = paperRef.current.scale();
+    setCursorPos({
+      x: Math.round((e.clientX - rect.left - tx) / sx),
+      y: Math.round((e.clientY - rect.top  - ty) / sx),
+    });
+  }, []);
 
   // ── Phase 3 (group): Group / Ungroup ─────────────────────────────────────
   const handleGroup = useCallback(() => {
@@ -384,7 +412,7 @@ export const EditorPage = () => {
       document.head.appendChild(s);
     }
 
-    const gridColor = isDarkMode ? '#1e2d40' : '#CBD5E1';
+    const gridColor = isDarkMode ? '#27272A' : '#D4D4D8';
 
     const paper = new joint.dia.Paper({
       el: paperEl,
@@ -527,9 +555,9 @@ export const EditorPage = () => {
         }
       }
       if (isRubberBandRef.current) {
-        const { tx, ty, sx } = rubberTransformRef.current;
+        const { tx, ty, sx: rsx } = rubberTransformRef.current;
         const bx = rubberStartRef.current.x, by = rubberStartRef.current.y;
-        setRubberRect({ x: bx * sx + tx, y: by * sx + ty, w: (x - bx) * sx, h: (y - by) * sx });
+        setRubberRect({ x: bx * rsx + tx, y: by * rsx + ty, w: (x - bx) * rsx, h: (y - by) * rsx });
       }
     });
 
@@ -588,7 +616,7 @@ export const EditorPage = () => {
     paper.on('blank:pointerdblclick', () => {
       if (activeDrawToolRef.current === 'polygon') {
         const raw   = polyVerticesRef.current;
-        const verts = raw.length >= 4 ? raw.slice(0, -1) : raw; // drop duplicate from 2nd click
+        const verts = raw.length > 3 ? raw.slice(0, -1) : raw; // drop duplicate
         if (verts.length >= 3) {
           const el = createPolygon({ vertices: verts, isDarkMode });
           graph.addCell(el);
@@ -616,6 +644,18 @@ export const EditorPage = () => {
       }
     });
 
+    // ── cell:pointerdown — start free draw even when mouse is over a cell ─
+    paper.on('cell:pointerdown', (cellView, evt) => {
+      if (activeDrawToolRef.current === 'freeDraw') {
+        const pt = paper.clientToLocalPoint(evt.clientX, evt.clientY);
+        freeDrawPointsRef.current = [{ x: pt.x, y: pt.y }];
+        isFreeDrawingRef.current  = true;
+        const { tx, ty } = paper.translate();
+        const { sx }     = paper.scale();
+        setPolyTransform({ tx, ty, sx });
+      }
+    });
+
     // ── Helper: attach link editing tools to a link view ─────────────────
     const showLinkTools = (linkView) => {
       paper.hideTools();
@@ -639,18 +679,6 @@ export const EditorPage = () => {
 
     // Hide link tools when clicking blank canvas or a non-link element
     paper.on('blank:pointerdown', () => paper.hideTools());
-
-    // ── cell:pointerdown — start free draw even when mouse is over a cell ─
-    paper.on('cell:pointerdown', (cellView, evt) => {
-      if (activeDrawToolRef.current === 'freeDraw') {
-        const pt = paper.clientToLocalPoint(evt.clientX, evt.clientY);
-        freeDrawPointsRef.current = [{ x: pt.x, y: pt.y }];
-        isFreeDrawingRef.current  = true;
-        const { tx, ty } = paper.translate();
-        const { sx }     = paper.scale();
-        setPolyTransform({ tx, ty, sx });
-      }
-    });
 
     // ── cell:pointerup ────────────────────────────────────────────────────
     paper.on('cell:pointerup', (cellView, evt) => {
@@ -748,9 +776,9 @@ export const EditorPage = () => {
   };
 
   // ── Zoom controls ─────────────────────────────────────────────────────────
-  const zoomIn  = () => { if (paperRef.current) { const s = paperRef.current.scale(); paperRef.current.scale(Math.min(s.sx * 1.2, 4)); } };
-  const zoomOut = () => { if (paperRef.current) { const s = paperRef.current.scale(); paperRef.current.scale(Math.max(s.sx / 1.2, 0.2)); } };
-  const zoomFit = () => { paperRef.current?.scaleContentToFit({ padding: 40 }); };
+  const zoomIn  = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.min(s.sx * 1.2, 4);   paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
+  const zoomOut = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.max(s.sx / 1.2, 0.2); paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
+  const zoomFit = () => { paperRef.current?.scaleContentToFit({ padding: 40 }); setTimeout(() => { const s = paperRef.current?.scale(); if (s) setZoomLevel(Math.round(s.sx * 100)); }, 50); };
 
   // ── Save / Load / Export ──────────────────────────────────────────────────
   const saveGraph = () => {
@@ -802,8 +830,16 @@ export const EditorPage = () => {
       status_led: { w: 120, h: 100 }, motor_status: { w: 140, h: 100 }, value_control: { w: 160, h: 100 },
       digital_readout: { w: 140, h: 80 }, temp_display: { w: 140, h: 100 }, toggle_switch: { w: 160, h: 80 },
       header_text: { w: 300, h: 50 }, scadavis_symbol: { w: 120, h: 100 },
-      breaker_symbol: { w: 60, h: 90 }, disconnector_symbol: { w: 60, h: 90 }, ground_symbol: { w: 60, h: 70 },
-      pipe_horz: { w: 150, h: 40 }, pipe_vert: { w: 40, h: 150 }, elbow_br: { w: 80, h: 80 },
+      // Electrical
+      breaker_symbol: { w: 60, h: 90 }, disconnector_symbol: { w: 60, h: 90 },
+      transformer_symbol: { w: 60, h: 100 }, fuse_symbol: { w: 60, h: 80 },
+      bus_bar: { w: 180, h: 60 }, ground_symbol: { w: 60, h: 70 },
+      // Piping
+      pipe_horz: { w: 150, h: 40 }, pipe_vert: { w: 40, h: 150 },
+      elbow_br: { w: 80, h: 80 }, elbow_bl: { w: 80, h: 80 },
+      elbow_tr: { w: 80, h: 80 }, elbow_tl: { w: 80, h: 80 },
+      pipe_tee_h: { w: 120, h: 80 }, pipe_tee_v: { w: 80, h: 120 },
+      pipe_cross:  { w: 80, h: 80 },
     };
     const sz = defaultSizes[data.t] || { w: 120, h: 80 };
     const portsConfig = makePortsConfig();
@@ -890,38 +926,47 @@ export const EditorPage = () => {
   // ── Toolbox definition ────────────────────────────────────────────────────
   const toolbox = [
     { cat: 'Industrial Nodes', items: [
-      { t: 'tank_level',      l: 'Storage Silo',  i: ScadaIcons.Facility,   props: { name: 'Silo 01',       color: '#3B82F6', unit: '%' } },
-      { t: 'motor_status',    l: 'Feed Pump',      i: ScadaIcons.Facility,   props: { name: 'Pump A',        color: '#3B82F6' } },
-      { t: 'valve_control',   l: 'Ctrl Valve',     i: ScadaIcons.Facility,   props: { name: 'Valve',         color: '#EF4444', val: false } },
-      { t: 'progress_bar',    l: 'Cap. Bar',        i: ScadaIcons.Progress,   props: { name: 'Capacity',      color: '#8b5cf6', unit: 'U' } },
-      { t: 'scadavis_symbol', l: 'Facility',        i: ScadaIcons.Facility,   props: { name: 'Plant A',       color: '#64748b' } },
+      { t: 'tank_level',      l: 'Storage Tank',   i: ScadaIcons.Tank,     props: { name: 'Tank 01',       color: '#3B82F6', unit: '%'  } },
+      { t: 'motor_status',    l: 'Pump / Motor',   i: ScadaIcons.Pump,     props: { name: 'Pump A',        color: '#3B82F6'             } },
+      { t: 'valve_control',   l: 'Ctrl Valve',     i: ScadaIcons.Valve,    props: { name: 'Valve',         color: '#EF4444', val: false  } },
+      { t: 'progress_bar',    l: 'Cap. Bar',        i: ScadaIcons.Progress, props: { name: 'Capacity',      color: '#8B5CF6', unit: 'U'  } },
+      { t: 'scadavis_symbol', l: 'Facility',        i: ScadaIcons.Facility, props: { name: 'Plant A',       color: '#64748B'             } },
     ]},
     { cat: 'Piping & Routing', items: [
-      { t: 'pipe_horz', l: 'Horz Pipe', i: ScadaIcons.Facility, props: { name: 'Pipe', color: '#3B82F6' } },
-      { t: 'pipe_vert', l: 'Vert Pipe', i: ScadaIcons.Facility, props: { name: 'Pipe', color: '#3B82F6' } },
-      { t: 'elbow_br',  l: 'Elbow',     i: ScadaIcons.Facility, props: { name: 'Elbow', color: '#3B82F6' } },
+      { t: 'pipe_horz',  l: 'Horz Pipe', i: ScadaIcons.PipeH,    props: { name: 'Pipe H',  color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'pipe_vert',  l: 'Vert Pipe', i: ScadaIcons.PipeV,    props: { name: 'Pipe V',  color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'elbow_br',   l: 'Elbow ↘',   i: ScadaIcons.Elbow,    props: { name: 'Elbow',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'elbow_bl',   l: 'Elbow ↙',   i: ScadaIcons.ElbowBL,  props: { name: 'Elbow',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'elbow_tr',   l: 'Elbow ↗',   i: ScadaIcons.ElbowTR,  props: { name: 'Elbow',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'elbow_tl',   l: 'Elbow ↖',   i: ScadaIcons.ElbowTL,  props: { name: 'Elbow',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'pipe_tee_h', l: 'Tee ↓',     i: ScadaIcons.TeeH,     props: { name: 'Tee H',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'pipe_tee_v', l: 'Tee →',     i: ScadaIcons.TeeV,     props: { name: 'Tee V',   color: '#3B82F6', stroke: '#3B82F6' } },
+      { t: 'pipe_cross', l: 'Cross',     i: ScadaIcons.Cross,    props: { name: 'Cross',   color: '#3B82F6', stroke: '#3B82F6' } },
     ]},
     { cat: 'Electrical Substation', items: [
-      { t: 'breaker_symbol',      l: 'Breaker',    i: ScadaIcons.Breaker,      props: { name: 'CB-01',  color: '#EF4444' } },
-      { t: 'disconnector_symbol', l: 'Disconnect', i: ScadaIcons.Disconnector, props: { name: 'DS-01',  color: '#F59E0B' } },
-      { t: 'ground_symbol',       l: 'Ground',     i: ScadaIcons.Ground,       props: { name: 'GND',    color: '#22C55E' } },
+      { t: 'breaker_symbol',      l: 'Breaker',     i: ScadaIcons.Breaker,      props: { name: 'CB-01',  color: '#EF4444', stroke: '#EF4444' } },
+      { t: 'disconnector_symbol', l: 'Disconnect',  i: ScadaIcons.Disconnector, props: { name: 'DS-01',  color: '#F59E0B', stroke: '#F59E0B' } },
+      { t: 'transformer_symbol',  l: 'Transformer', i: ScadaIcons.Transformer,  props: { name: 'TR-01',  color: '#8B5CF6', stroke: '#8B5CF6' } },
+      { t: 'fuse_symbol',         l: 'Fuse',        i: ScadaIcons.Fuse,         props: { name: 'FS-01',  color: '#F59E0B', stroke: '#F59E0B' } },
+      { t: 'bus_bar',             l: 'Bus Bar',     i: ScadaIcons.BusBar,       props: { name: 'BUS-1',  color: '#64748B', stroke: '#64748B' } },
+      { t: 'ground_symbol',       l: 'Ground',      i: ScadaIcons.Ground,       props: { name: 'GND',    color: '#10B981', stroke: '#10B981' } },
     ]},
     { cat: 'Controls & Displays', items: [
-      { t: 'toggle_switch',   l: 'Switch',      i: ScadaIcons.Toggle,    props: { name: 'Switch',    val: false } },
-      { t: 'value_control',   l: 'Adjuster',    i: ScadaIcons.Slider,    props: { name: 'Setpoint',  val: 0 } },
-      { t: 'gauge_dial',      l: 'Analog Dial', i: ScadaIcons.Gauge,     props: { name: 'Pressure',  color: '#3B82F6', unit: 'PSI' } },
-      { t: 'digital_readout', l: 'LCD Display', i: ScadaIcons.LCD,       props: { name: 'Live Data', color: '#10b981', unit: '' } },
-      { t: 'temp_display',    l: 'Numeric',     i: ScadaIcons.Temp,      props: { name: 'Display',   color: '#3B82F6', unit: '°C' } },
+      { t: 'toggle_switch',   l: 'Switch',      i: ScadaIcons.Toggle,    props: { name: 'Switch',    val: false,               color: '#10B981' } },
+      { t: 'value_control',   l: 'Adjuster',    i: ScadaIcons.Slider,    props: { name: 'Setpoint',  val: 0,                   color: '#3B82F6' } },
+      { t: 'gauge_dial',      l: 'Analog Dial', i: ScadaIcons.Gauge,     props: { name: 'Pressure',  color: '#3B82F6', unit: 'PSI'            } },
+      { t: 'digital_readout', l: 'LCD Display', i: ScadaIcons.LCD,       props: { name: 'Live Data', color: '#10B981', unit: ''               } },
+      { t: 'temp_display',    l: 'Numeric',     i: ScadaIcons.Temp,      props: { name: 'Display',   color: '#3B82F6', unit: '°C'             } },
     ]},
     { cat: 'Status & Alerts', items: [
-      { t: 'status_led',    l: 'Status LED', i: ScadaIcons.LED,     props: { name: 'Indicator',     val: false, color: '#10b981' } },
-      { t: 'battery_level', l: 'Battery',    i: ScadaIcons.Battery, props: { name: 'Bank',          val: 100 } },
-      { t: 'alert_banner',  l: 'Warning',    i: ScadaIcons.Alert,   props: { name: 'System Warning', val: false } },
-      { t: 'header_text',   l: 'Header',     i: ScadaIcons.Text,    props: { name: 'Area Label',    color: '#cbd5e1' } },
+      { t: 'status_led',    l: 'Status LED', i: ScadaIcons.LED,     props: { name: 'Indicator',      val: false, color: '#10B981' } },
+      { t: 'battery_level', l: 'Battery',    i: ScadaIcons.Battery, props: { name: 'Battery Bank',   val: 100,   color: '#10B981' } },
+      { t: 'alert_banner',  l: 'Warning',    i: ScadaIcons.Alert,   props: { name: 'System Warning', val: false, color: '#EF4444' } },
+      { t: 'header_text',   l: 'Header',     i: ScadaIcons.Text,    props: { name: 'Area Label',     color: '#71717A'            } },
     ]},
     { cat: 'Analytics', items: [
-      { t: 'line_chart', l: 'Trend View',  i: ScadaIcons.LineChart, props: { name: 'History', color: '#3B82F6' } },
-      { t: 'bar_chart',  l: 'Volume Bar',  i: ScadaIcons.BarChart,  props: { name: 'Volume',  color: '#8b5cf6' } },
+      { t: 'line_chart', l: 'Trend View', i: ScadaIcons.LineChart, props: { name: 'History', color: '#3B82F6' } },
+      { t: 'bar_chart',  l: 'Volume Bar', i: ScadaIcons.BarChart,  props: { name: 'Volume',  color: '#8B5CF6' } },
     ]},
   ];
 
@@ -953,11 +998,58 @@ export const EditorPage = () => {
         selectedCellIds={selectedCellIds}
       />
 
+      {/* ── Page Tab Bar ──────────────────────────────────────────────────── */}
+      {!isSimulating && (
+        <div
+          className="flex items-center shrink-0 theme-transition"
+          style={{ height: 28, backgroundColor: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}
+        >
+          {/* Active page tab */}
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              height: 28, paddingLeft: 14, paddingRight: 12,
+              borderRight: '1px solid var(--border)',
+              backgroundColor: 'var(--bg-canvas)',
+              borderBottom: '2px solid var(--accent)',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)' }}>
+              Plant Layout
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1, cursor: 'default' }}>×</span>
+          </div>
+
+          {/* Zoom controls on the right */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 1, paddingRight: 8 }}>
+            {[
+              { fn: zoomOut, Icon: ZoomOut,   title: 'Zoom Out'    },
+              { fn: zoomIn,  Icon: ZoomIn,    title: 'Zoom In'     },
+              { fn: zoomFit, Icon: Maximize2, title: 'Fit to View' },
+            ].map(({ fn, Icon, title }) => (
+              <button
+                key={title} onClick={fn} title={title}
+                style={{ width: 26, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <Icon size={12} />
+              </button>
+            ))}
+            <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: 'var(--text-secondary)', minWidth: 42, textAlign: 'center' }}>
+              {zoomLevel}%
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 flex overflow-hidden">
 
         {/* Sidebar */}
         <EditorSidebar
           activeTab={activeTab}
+          setActiveTab={setActiveTab}
           isSimulating={isSimulating}
           isDarkMode={isDarkMode}
           devices={devices}
@@ -981,6 +1073,7 @@ export const EditorPage = () => {
           }}
           onDrop={onDrop}
           onDragOver={e => e.preventDefault()}
+          onMouseMove={handleCanvasMouseMove}
         >
           <div ref={canvasRef} className="absolute inset-0 z-0 overflow-hidden" />
 
@@ -1047,27 +1140,61 @@ export const EditorPage = () => {
             </svg>
           )}
 
-          {/* Minimap */}
-          {!isSimulating && <Minimap graph={graphRef.current} isDarkMode={isDarkMode} />}
+          {/* Tag browser — bottom-left floating panel (visible in edit + run mode) */}
+          <TagBrowserFloat isDarkMode={isDarkMode} />
 
-          {/* Zoom controls */}
-          <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1">
-            {[
-              { icon: ZoomIn,    fn: zoomIn,  title: 'Zoom In'    },
-              { icon: ZoomOut,   fn: zoomOut, title: 'Zoom Out'   },
-              { icon: Maximize2, fn: zoomFit, title: 'Fit to View' },
-            ].map(({ icon: Icon, fn, title }) => (
+          {/* Minimap — bottom-right */}
+          {!isSimulating && <Minimap graph={graphRef.current} paperRef={paperRef} isDarkMode={isDarkMode} />}
+
+          {/* Run mode — frosted floating status bar */}
+          {isSimulating && (
+            <div
+              className="frosted theme-transition"
+              style={{
+                position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '7px 16px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+                backgroundColor: isDarkMode ? 'rgba(17,17,19,0.82)' : 'rgba(250,250,250,0.82)',
+                boxShadow: 'var(--shadow-md)',
+                zIndex: 50,
+                fontSize: 11, color: 'var(--text-secondary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--status-ok)', animation: 'live-pulse 2s infinite', flexShrink: 0 }} />
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Running</span>
+              </span>
+              <span style={{ color: 'var(--border-strong)' }}>│</span>
+              <span style={{ fontFamily: 'JetBrains Mono, Geist Mono, monospace', fontSize: 10 }}>
+                {String(Math.floor(runtimeSecs / 60)).padStart(2,'0')}:{String(runtimeSecs % 60).padStart(2,'0')}
+              </span>
+              <span style={{ color: 'var(--border-strong)' }}>│</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{totalNodes} nodes</span>
+              <span style={{ color: 'var(--border-strong)' }}>│</span>
               <button
-                key={title} onClick={fn} title={title}
-                className="w-9 h-9 flex items-center justify-center rounded-lg shadow-lg transition-colors theme-transition"
-                style={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--bg-panel)'}
+                onClick={() => setSimulating(false)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  height: 24, paddingLeft: 10, paddingRight: 10,
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: 11, cursor: 'pointer',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                title="Stop simulation (use the Running button in the top bar)"
               >
-                <Icon size={16} />
+                <Square size={10} strokeWidth={1.5} />
+                Stop
               </button>
-            ))}
-          </div>
+            </div>
+          )}
+
         </div>
 
         {/* Node Inspector */}
@@ -1084,6 +1211,47 @@ export const EditorPage = () => {
           totalNodes={totalNodes}
           totalLinks={totalLinks}
         />
+      </div>
+
+      {/* ── Status Bar ────────────────────────────────────────────────────── */}
+      <div
+        className="flex items-center shrink-0 theme-transition"
+        style={{
+          height: 22,
+          backgroundColor: 'var(--bg-panel)',
+          borderTop: '1px solid var(--border)',
+          paddingLeft: 12, paddingRight: 12,
+          fontSize: 10, color: 'var(--text-muted)',
+          fontFamily: 'monospace',
+          gap: 0,
+        }}
+      >
+        <span>x:&nbsp;{cursorPos.x}&nbsp;&nbsp;y:&nbsp;{cursorPos.y}</span>
+        <span style={{ margin: '0 8px', color: 'var(--border-strong)' }}>│</span>
+        <span>{totalNodes} node{totalNodes !== 1 ? 's' : ''}</span>
+        <span style={{ margin: '0 8px', color: 'var(--border-strong)' }}>│</span>
+        <span>{totalLinks} link{totalLinks !== 1 ? 's' : ''}</span>
+        <span style={{ margin: '0 8px', color: 'var(--border-strong)' }}>│</span>
+        <span style={{ color: isSimulating ? 'var(--status-ok)' : 'var(--text-muted)' }}>
+          {isSimulating ? '● Simulating' : '○ Idle'}
+        </span>
+        {activeDrawTool && (
+          <>
+            <span style={{ margin: '0 8px', color: 'var(--border-strong)' }}>│</span>
+            <span style={{ color: '#8B5CF6', fontFamily: 'Inter, system-ui, sans-serif' }}>
+              {activeDrawTool === 'rectangle' && 'Rectangle — click & drag'}
+              {activeDrawTool === 'ellipse'   && 'Ellipse — click & drag'}
+              {activeDrawTool === 'line'      && 'Line — click & drag'}
+              {activeDrawTool === 'text'      && 'Text — click to place'}
+              {activeDrawTool === 'polygon'   && 'Polygon — click vertices, dbl-click to close'}
+              {activeDrawTool === 'image'     && 'Image — click to insert'}
+              {activeDrawTool === 'freeDraw'  && 'Free Draw — click & drag to draw'}
+            </span>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'Inter, system-ui, sans-serif', color: 'var(--text-muted)' }}>
+          SCADA Designer v2
+        </span>
       </div>
 
       {/* Modals */}

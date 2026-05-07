@@ -10,7 +10,7 @@
 import * as joint from 'jointjs';
 import { v4 as uuidv4 } from 'uuid';
 
-// Custom element: no refWidth/refHeight defaults that would distort the d path
+// Custom element: no refWidth/refHeight defaults that distort the d path
 joint.shapes.scada = joint.shapes.scada || {};
 if (!joint.shapes.scada.DrawnPath) {
   joint.shapes.scada.DrawnPath = joint.dia.Element.define('scada.DrawnPath', {
@@ -216,7 +216,7 @@ export const normalizeSortedCells = (graph) => {
   return sorted;
 };
 
-// ── Ramer-Douglas-Peucker point thinning (epsilon in canvas units) ────────────
+// ── Ramer-Douglas-Peucker point thinning ─────────────────────────────────────
 const rdpReduce = (points, epsilon) => {
   if (points.length < 3) return points;
   let maxDist = 0, maxIdx = 0;
@@ -255,14 +255,7 @@ export const createFreedrawPath = ({ points, isDarkMode }) => {
     position: { x: minX, y: minY },
     size: { width: w, height: h },
     attrs: {
-      body: {
-        d,
-        fill: 'none',
-        stroke,
-        strokeWidth: 2,
-        strokeLinecap: 'round',
-        strokeLinejoin: 'round',
-      },
+      body: { d, fill: 'none', stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
       label: { text: '' },
     },
     ports: makePortsConfig(),

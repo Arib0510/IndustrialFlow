@@ -1,202 +1,239 @@
-/**
- * EditorToolbar.jsx
- * ─────────────────────────────────────────────────────────────────────────────
- * Phase 1 + 4 + 5 + 6: Full toolbar.
- *
- * New additions vs original:
- *   • Undo / Redo wired up (Phase 5)
- *   • Cut / Copy / Paste / Duplicate wired up (Phase 6)
- *   • Text Label, Polygon, Image draw tools (Phase 1)
- *   • Z-Order buttons: Bring to Front / Forward / Backward / Back (Phase 4)
- *   • 3-way sidebar tab bar: Explorer | Nodes | Layers (Phase 4)
- *   • Multi-select visual feedback (italic count label when >1 selected)
- */
-
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  Grid, Magnet, Undo2, Redo2, Scissors,
-  Copy, ClipboardPaste, Save, FolderOpen, FileDown,
-  Square, Circle, Minus, Hand, Type, Pentagon,
-  ImagePlus, ChevronsUp, ChevronUp, ChevronDown, ChevronsDown,
-  Layers, Trash2, Pencil,
+  MousePointer2, Hand, Square, Circle, Minus, Type, Pentagon, ImagePlus, Pencil,
+  Undo2, Redo2, AlignLeft, AlignCenterHorizontal, AlignRight,
+  MoreHorizontal, Grid, Magnet, ChevronsUp, ChevronUp, ChevronDown,
+  ChevronsDown, Layers, Save, FolderOpen, FileDown,
 } from 'lucide-react';
-import { ScadaIcons } from '../utils/iconUtils.jsx';
+
+// ── Icon button ────────────────────────────────────────────────────────────────
+const Btn = ({ active, onClick, title, disabled, children }) => (
+  <button
+    onClick={onClick}
+    title={title}
+    disabled={disabled}
+    style={{
+      width: 30, height: 30,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      borderRadius: 'var(--radius-sm)',
+      border: 'none', outline: 'none',
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
+      color: disabled ? 'var(--text-muted)' : active ? 'var(--accent)' : 'var(--text-secondary)',
+      opacity: disabled ? 0.4 : 1,
+      transition: 'background-color 0.15s, color 0.15s',
+      flexShrink: 0,
+    }}
+    onMouseEnter={e => { if (!disabled && !active) e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
+    onMouseLeave={e => { if (!active) e.currentTarget.style.backgroundColor = 'transparent'; }}
+  >
+    {children}
+  </button>
+);
+
+// ── Separator ──────────────────────────────────────────────────────────────────
+const Sep = () => (
+  <div style={{ width: 1, height: 14, backgroundColor: 'var(--border)', margin: '0 4px', flexShrink: 0 }} />
+);
+
+// ── Overflow menu item ─────────────────────────────────────────────────────────
+const MenuItem = ({ label, Icon, onClick, active, disabled }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+      padding: '6px 10px', borderRadius: 'var(--radius-sm)',
+      border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+      backgroundColor: active ? 'var(--accent-subtle)' : 'transparent',
+      color: disabled ? 'var(--text-muted)' : active ? 'var(--accent)' : 'var(--text-primary)',
+      fontSize: 13, fontFamily: 'inherit', textAlign: 'left',
+      opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={e => { if (!disabled) e.currentTarget.style.backgroundColor = active ? 'var(--accent-subtle2)' : 'var(--bg-hover)'; }}
+    onMouseLeave={e => { e.currentTarget.style.backgroundColor = active ? 'var(--accent-subtle)' : 'transparent'; }}
+  >
+    <Icon size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: active ? 'var(--accent)' : 'var(--text-secondary)' }} />
+    {label}
+  </button>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const EditorToolbar = ({
-  // Tab state
-  activeTab, setActiveTab,
-  // Interaction modes
   isPanMode, setIsPanMode,
   activeDrawTool, setActiveDrawTool,
-  // Grid
   gridVisible, setGridVisible,
   snapEnabled, setSnapEnabled,
-  // History (Phase 5)
   canUndo, canRedo,
   onUndo, onRedo,
-  // Clipboard (Phase 6)
   onCopy, onPaste, onDuplicate, onCut,
-  // Z-Order (Phase 4)
   onBringToFront, onBringForward, onSendBackward, onSendToBack,
-  // Grouping (Phase 3 ext.)
   onGroup, onUngroup,
-  // File ops
-  saveGraph, loadGraph, exportGraph, resetCanvas,
-  // Simulation
+  saveGraph, loadGraph, exportGraph,
   isSimulating,
-  // Selection info
   selectedCount,
   selectedCellIds,
 }) => {
-  // ── Style helpers ────────────────────────────────────────────────────────
-  const btn = (active, accentColor = 'var(--accent)', disabled = false) => ({
-    padding: '5px 7px',
-    borderRadius: 7,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex', alignItems: 'center', gap: 4,
-    fontSize: 11, fontWeight: 700, letterSpacing: 1,
-    backgroundColor: active ? `rgba(59,130,246,0.15)` : 'transparent',
-    color: disabled ? 'var(--text-muted)' : active ? accentColor : 'var(--text-secondary)',
-    border: 'none', outline: 'none',
-    transition: 'all 0.15s',
-    opacity: disabled ? 0.4 : 1,
-  });
+  const [showOverflow, setShowOverflow] = useState(false);
+  const overflowRef = useRef(null);
 
-  const Sep = () => <div className="w-px h-5 mx-0.5 shrink-0" style={{ backgroundColor: 'var(--border)' }} />;
+  useEffect(() => {
+    const handler = e => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  if (isSimulating) return null;
 
   const drawBtn = (tool, Icon, title) => (
-    <button
-      style={btn(activeDrawTool === tool, '#8B5CF6')}
-      title={title}
+    <Btn
+      active={activeDrawTool === tool}
       onClick={() => { setActiveDrawTool(activeDrawTool === tool ? null : tool); setIsPanMode(false); }}
+      title={title}
     >
-      <Icon size={14} />
-    </button>
+      <Icon size={15} strokeWidth={1.5} />
+    </Btn>
   );
 
+  const close = fn => () => { fn(); setShowOverflow(false); };
+
   return (
-    <div className="flex shrink-0 theme-transition" style={{ backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border)' }}>
+    /* Centered row */
+    <div
+      className="flex items-center justify-center shrink-0 theme-transition"
+      style={{
+        paddingTop: 6,
+        paddingBottom: 6,
+        position: 'relative',
+        backgroundColor: 'var(--bg-main)',
+        borderBottom: '1px solid var(--border)',
+      }}
+    >
+      {/* Floating pill */}
+      <div
+        className="flex items-center theme-transition"
+        style={{
+          gap: 1,
+          padding: '3px 8px',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          backgroundColor: 'var(--bg-panel)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        {/* Select */}
+        <Btn
+          active={!isPanMode && !activeDrawTool}
+          onClick={() => { setIsPanMode(false); setActiveDrawTool(null); }}
+          title="Select  V"
+        >
+          <MousePointer2 size={15} strokeWidth={1.5} />
+        </Btn>
 
-      {/* ── Sidebar Tabs (hidden during simulation) ─────────────────────── */}
-      {!isSimulating && (
-        <div className="flex shrink-0" style={{ width: 320, borderRight: '1px solid var(--border)' }}>
-          {[
-            { id: 'explorer', icon: ScadaIcons.DatabaseTag, label: 'Explorer' },
-            { id: 'nodes',    icon: ScadaIcons.LayersHMI,  label: 'Nodes'    },
-            { id: 'layers',   icon: ({ size, color }) => <Layers size={size} color={color} />, label: 'Layers' },
-          ].map(({ id, icon: Icon, label }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold uppercase tracking-widest transition-colors"
-              style={
-                activeTab === id
-                  ? { backgroundColor: 'var(--bg-panel)', color: 'var(--accent)', borderBottom: '2px solid var(--accent)' }
-                  : { color: 'var(--text-secondary)', borderBottom: '2px solid transparent' }
-              }
-            >
-              <Icon size={14} color="currentColor" /> {label}
-            </button>
-          ))}
-        </div>
-      )}
+        {/* Pan */}
+        <Btn
+          active={isPanMode}
+          onClick={() => { setIsPanMode(!isPanMode); setActiveDrawTool(null); }}
+          title="Pan  H"
+        >
+          <Hand size={15} strokeWidth={1.5} />
+        </Btn>
 
-      {/* ── Main Toolbar ─────────────────────────────────────────────────── */}
-      <div className="flex-1 flex items-center gap-0.5 px-2 py-1.5 overflow-x-auto">
+        <Sep />
 
-        {/* Title */}
-        <span className="text-sm font-bold mr-3 shrink-0" style={{ color: 'var(--accent)' }}>
-          Plant Layout
-        </span>
+        {/* Draw tools */}
+        {drawBtn('rectangle', Square,   'Rectangle  R')}
+        {drawBtn('ellipse',   Circle,   'Ellipse  E'  )}
+        {drawBtn('line',      Minus,    'Line  L'     )}
+        {drawBtn('polygon',   Pentagon, 'Polygon  P'  )}
+        {drawBtn('text',      Type,     'Text  T'     )}
+        {drawBtn('image',     ImagePlus,'Image  I'    )}
+        {drawBtn('freeDraw',  Pencil,   'Free Draw (Pencil)'  )}
+
+        <Sep />
 
         {/* Undo / Redo */}
-        <button style={btn(false, 'var(--accent)', !canUndo)} onClick={onUndo} title="Undo (Ctrl+Z)" disabled={!canUndo}>
-          <Undo2 size={14} />
-        </button>
-        <button style={btn(false, 'var(--accent)', !canRedo)} onClick={onRedo} title="Redo (Ctrl+Y)" disabled={!canRedo}>
-          <Redo2 size={14} />
-        </button>
-        <Sep />
+        <Btn active={false} disabled={!canUndo} onClick={onUndo} title="Undo  ⌘Z">
+          <Undo2 size={15} strokeWidth={1.5} />
+        </Btn>
+        <Btn active={false} disabled={!canRedo} onClick={onRedo} title="Redo  ⌘⇧Z">
+          <Redo2 size={15} strokeWidth={1.5} />
+        </Btn>
 
-        {/* Clipboard */}
-        <button style={btn(false)} onClick={onCut}       title="Cut (Ctrl+X)">      <Scissors      size={14} /></button>
-        <button style={btn(false)} onClick={onCopy}      title="Copy (Ctrl+C)">     <Copy          size={14} /></button>
-        <button style={btn(false)} onClick={onPaste}     title="Paste (Ctrl+V)">    <ClipboardPaste size={14} /></button>
-        <button style={btn(false)} onClick={onDuplicate} title="Duplicate (Ctrl+D)">
-          <Copy size={14} /> <span style={{ fontSize: 9 }}>D</span>
-        </button>
-        <Sep />
-
-        {/* Pan mode */}
-        <button style={btn(isPanMode, '#22C55E')} onClick={() => { setIsPanMode(!isPanMode); setActiveDrawTool(null); }} title="Pan (Space+drag)">
-          <Hand size={14} />
-        </button>
-        <Sep />
-
-        {/* Drawing tools */}
-        {drawBtn('rectangle', Square,   'Draw Rectangle'  )}
-        {drawBtn('ellipse',   Circle,   'Draw Ellipse'    )}
-        {drawBtn('line',      Minus,    'Draw Line / Pipe')}
-        {drawBtn('polygon',   Pentagon, 'Draw Polygon (click vertices, dbl-click/Enter/right-click to close)')}
-        {drawBtn('text',      Type,     'Text Label'      )}
-        {drawBtn('image',     ImagePlus,'Insert Image'    )}
-        {drawBtn('freeDraw',  Pencil,   'Free Draw (Pencil)'  )}
-        <Sep />
-
-        {/* Z-Order */}
-        <button style={btn(false)} onClick={onBringToFront} title="Bring to Front"><ChevronsUp   size={14} /></button>
-        <button style={btn(false)} onClick={onBringForward} title="Bring Forward"> <ChevronUp    size={14} /></button>
-        <button style={btn(false)} onClick={onSendBackward} title="Send Backward"> <ChevronDown  size={14} /></button>
-        <button style={btn(false)} onClick={onSendToBack}   title="Send to Back">  <ChevronsDown size={14} /></button>
-        <Sep />
-
-        {/* Fix 3: Group / Ungroup — visible when multi-select active */}
-        <button
-          style={btn(false, '#8B5CF6', !selectedCellIds?.length || selectedCellIds.length < 2)}
-          onClick={onGroup}
-          title={`Group selected (${selectedCellIds?.length ?? 0} items) — rubber-band select 2+ items first`}
-          disabled={!selectedCellIds?.length || selectedCellIds.length < 2}
-        >
-          <Layers size={14} />
-          <span style={{ fontSize: 10, fontWeight: 700 }}>Group</span>
-        </button>
-        <button
-          style={btn(false, '#06B6D4', selectedCount === 0)}
-          onClick={onUngroup}
-          title="Ungroup selected group"
-          disabled={selectedCount === 0}
-        >
-          <Layers size={14} />
-          <span style={{ fontSize: 10, fontWeight: 700 }}>Ungroup</span>
-        </button>
-        <Sep />
-
-        {/* Grid / Snap */}
-        <button style={btn(gridVisible)}             onClick={() => setGridVisible(!gridVisible)}   title="Toggle Grid">  <Grid   size={14} /></button>
-        <button style={btn(snapEnabled, '#F59E0B')}  onClick={() => setSnapEnabled(!snapEnabled)}   title="Snap to Grid"> <Magnet size={14} /></button>
-        <Sep />
-
-        {/* Persist */}
-        <button style={btn(false)} onClick={saveGraph}   title="Save Layout"  className="flex gap-1 items-center">
-          <Save     size={13} /><span style={{ fontSize: 10, color: 'var(--status-ok)', fontWeight: 700 }}>Save</span>
-        </button>
-        <button style={btn(false)} onClick={loadGraph}   title="Load Layout"  className="flex gap-1 items-center">
-          <FolderOpen size={13} /><span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>Load</span>
-        </button>
-        <button style={btn(false)} onClick={exportGraph} title="Export JSON"  className="flex gap-1 items-center">
-          <FileDown size={13} /><span style={{ fontSize: 10, color: '#06B6D4', fontWeight: 700 }}>Export</span>
-        </button>
-
-        {/* Delete shortcut when something is selected */}
-        {selectedCount > 0 && (
+        {/* Alignment — only when multiple selected */}
+        {selectedCount > 1 && (
           <>
             <Sep />
-            <span className="text-[10px] italic mx-1 shrink-0" style={{ color: 'var(--text-muted)' }}>
-              {selectedCount} selected
-            </span>
+            <Btn active={false} onClick={() => {}} title="Align left edges">
+              <AlignLeft size={15} strokeWidth={1.5} />
+            </Btn>
+            <Btn active={false} onClick={() => {}} title="Align centers horizontally">
+              <AlignCenterHorizontal size={15} strokeWidth={1.5} />
+            </Btn>
+            <Btn active={false} onClick={() => {}} title="Align right edges">
+              <AlignRight size={15} strokeWidth={1.5} />
+            </Btn>
           </>
         )}
+
+        <Sep />
+
+        {/* Overflow ⋯ */}
+        <div style={{ position: 'relative' }} ref={overflowRef}>
+          <Btn active={showOverflow} onClick={() => setShowOverflow(o => !o)} title="More options">
+            <MoreHorizontal size={15} strokeWidth={1.5} />
+          </Btn>
+
+          {showOverflow && (
+            <div
+              className="theme-transition"
+              style={{
+                position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                width: 200,
+                backgroundColor: 'var(--bg-panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: 'var(--shadow-md)',
+                padding: 4,
+                zIndex: 200,
+              }}
+            >
+              <MenuItem label="Toggle grid"    Icon={Grid}        onClick={close(() => setGridVisible(!gridVisible))}   active={gridVisible} />
+              <MenuItem label="Snap to grid"   Icon={Magnet}      onClick={close(() => setSnapEnabled(!snapEnabled))}   active={snapEnabled} />
+
+              <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
+
+              <MenuItem label="Bring to front" Icon={ChevronsUp}   onClick={close(onBringToFront)} />
+              <MenuItem label="Bring forward"  Icon={ChevronUp}    onClick={close(onBringForward)} />
+              <MenuItem label="Send backward"  Icon={ChevronDown}  onClick={close(onSendBackward)} />
+              <MenuItem label="Send to back"   Icon={ChevronsDown} onClick={close(onSendToBack)} />
+
+              <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
+
+              <MenuItem label="Group"   Icon={Layers} onClick={close(onGroup)}   disabled={!selectedCellIds?.length || selectedCellIds.length < 2} />
+              <MenuItem label="Ungroup" Icon={Layers} onClick={close(onUngroup)} disabled={selectedCount === 0} />
+
+              <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
+
+              <MenuItem label="Save layout" Icon={Save}       onClick={close(saveGraph)}   />
+              <MenuItem label="Load layout" Icon={FolderOpen} onClick={close(loadGraph)}   />
+              <MenuItem label="Export JSON" Icon={FileDown}   onClick={close(exportGraph)} />
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Selection count — absolute right */}
+      {selectedCount > 0 && (
+        <div style={{ position: 'absolute', right: 16, fontSize: 11, color: 'var(--text-muted)' }}>
+          {selectedCount} selected
+        </div>
+      )}
     </div>
   );
 };
