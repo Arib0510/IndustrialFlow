@@ -1,36 +1,40 @@
-# SCADA IoT Dashboard Frontend
+# SCADA IoT Dashboard
 
-This project is a modern, responsive frontend application for a SCADA IoT Dashboard, built with React and Vite. It provides a modular and robust architecture to monitor and control industrial systems, displaying real-time data, schematics, and system statuses.
+A modern, high-performance web-based SCADA designer and dashboard for IoT monitoring. Built with **React**, **Vite**, and **JointJS**.
 
-## Features
+## Key Features
 
-- **Advanced Drawing Suite (Hand-Draw Tool):** Includes capabilities for polygon creation, advanced link connections, schematic modifications, and element grouping. Users can build complex schematic blocks and bind them directly to real-time IoT tags with precision.
-- **Real-Time Data Binding:** Dynamic updates connected directly to IoT data sources.
-- **Modern Design:** A clean, responsive, and dynamic UI leveraging advanced styling to offer a premium user experience.
-- **Vite & React Environment:** High performance development and optimized production builds.
+- **Precision Instrument Theme**: A clean, minimal dark/light interface designed for industrial environments.
+- **JointJS Canvas**: Powerful vector-based schematic designer for building industrial plant layouts.
+- **Modular Toolbar**: Tools for shapes, text, images, and a "Free Draw" pencil tool.
+- **Smart Sidebars**: Collapsible components panel, tag explorer with real-time data, and layer management.
+- **Real-Time Data**: Bind UI elements directly to IoT tags (Pump status, Tank levels, etc.).
+- **Interactive Widgets**: Gauges, charts, battery levels, and digital readouts that update live.
+- **Tag Browser**: Floating panel to easily search and drag tags onto the canvas.
+- **Responsive Layout**: Designed to work across different screen sizes with a built-in minimap for easy navigation.
+
+## Tech Stack
+
+- **Frontend**: React 19
+- **Build Tool**: Vite
+- **Canvas Engine**: JointJS
+- **Icons**: Lucide React
+- **Animations**: Framer Motion
+- **Charts**: Recharts
 
 ## Getting Started
 
-First, install the dependencies:
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-```bash
-npm install
-```
+2. **Run the development server**:
+   ```bash
+   npm run dev
+   ```
 
-Run the development server:
-
-```bash
-npm run dev
-```
-
-Navigate to the provided localhost URL in your browser to view the application.
-
-## Development
-
-- Built with Vite for Fast Refresh and highly optimized bundle sizes.
-- Uses React for a component-based UI.
-- Modular component architecture located under the `src/` directory.
-
-## Hand-Draw Tool
-
-The `hand-draw-tool` branch includes the latest suite of advanced drawing capabilities, including grouping and direct data binding for schematic elements.
+3. **Build for production**:
+   ```bash
+   npm run build
+   ```
