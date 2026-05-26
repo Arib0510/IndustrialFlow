@@ -37,6 +37,7 @@ import {
   createRectangle, createEllipse, createLine,
   createTextLabel, createPolygon, createImageShape,
   makePortsConfig, normalizeSortedCells, createFreedrawPath,
+  recognizeFreedrawShape,
 } from '../features/editor/utils/drawingUtils';
 
 // Phase 3 — Expression binding engine
@@ -271,15 +272,56 @@ export const EditorPage = () => {
     }
   }, [selectedCell]);
 
+  // ── Zoom controls ─────────────────────────────────────────────────────────
+  const zoomIn  = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.min(s.sx * 1.2, 4);   paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
+  const zoomOut = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.max(s.sx / 1.2, 0.2); paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
+  const zoomFit = () => { paperRef.current?.scaleContentToFit({ padding: 40 }); setTimeout(() => { const s = paperRef.current?.scale(); if (s) setZoomLevel(Math.round(s.sx * 100)); }, 50); };
+
+  // ── Save / Load / Export ──────────────────────────────────────────────────
+  const saveGraph = () => {
+    localStorage.setItem('scada_graph_save', JSON.stringify(graphRef.current.toJSON()));
+    alert('Layout saved to local storage!');
+  };
+
+  // ── Tool-mode callbacks for keyboard shortcuts ────────────────────────────
+  const handleSelectMode = useCallback(() => {
+    setActiveDrawTool(null);
+    setIsPanMode(false);
+  }, []);
+
+  const handlePanMode = useCallback(() => {
+    setIsPanMode(prev => !prev);
+    setActiveDrawTool(null);
+  }, []);
+
+  const handleSetDrawTool = useCallback((tool) => {
+    setActiveDrawTool(prev => prev === tool ? null : tool);
+    setIsPanMode(false);
+  }, []);
+
   // ── Phase 5+6: Keyboard shortcuts ────────────────────────────────────────
   useEditorKeyboard({
     historyRef,
     onCopy:           handleCopy,
     onPaste:          handlePaste,
     onDuplicate:      handleDuplicate,
+    onCut:            handleCut,
     onDelete:         handleDelete,
     onEscape:         handleEscape,
     onCommitPolygon:  handleCommitPolygon,
+    onSelectMode:     handleSelectMode,
+    onPanMode:        handlePanMode,
+    onDrawTool:       handleSetDrawTool,
+    onGroup:          handleGroup,
+    onUngroup:        handleUngroup,
+    onSave:           saveGraph,
+    onBringToFront:   bringToFront,
+    onBringForward:   bringForward,
+    onSendBackward:   sendBackward,
+    onSendToBack:     sendToBack,
+    onZoomIn:         zoomIn,
+    onZoomOut:        zoomOut,
+    onZoomFit:        zoomFit,
   });
 
   // ── Phase 3: Tag expression binding sync ─────────────────────────────────
@@ -728,7 +770,28 @@ export const EditorPage = () => {
         isFreeDrawingRef.current = false;
         const pts = freeDrawPointsRef.current;
         if (pts.length >= 2) {
-          const el = createFreedrawPath({ points: pts, isDarkMode });
+          const recognized = recognizeFreedrawShape(pts);
+          let el = null;
+
+          if (recognized) {
+            if (recognized.type === 'ellipse') {
+              el = createEllipse({ x: recognized.x, y: recognized.y, isDarkMode });
+              el.set('size', { width: Math.max(4, recognized.w), height: Math.max(4, recognized.h) });
+            } else if (recognized.type === 'rectangle') {
+              el = createRectangle({ x: recognized.x, y: recognized.y, isDarkMode });
+              el.set('size', { width: Math.max(4, recognized.w), height: Math.max(4, recognized.h) });
+            } else if (recognized.type === 'triangle') {
+              el = createPolygon({ vertices: recognized.vertices, isDarkMode });
+            } else if (recognized.type === 'line') {
+              el = createLine({ x: recognized.x1, y: recognized.y1, isDarkMode });
+              el.target({ x: recognized.x2, y: recognized.y2 });
+            }
+          }
+
+          if (!el) {
+            el = createFreedrawPath({ points: pts, isDarkMode });
+          }
+
           if (el) {
             graph.addCell(el);
             setSelectedCellId(el.id);
@@ -775,16 +838,7 @@ export const EditorPage = () => {
     setActiveDrawTool(null);
   };
 
-  // ── Zoom controls ─────────────────────────────────────────────────────────
-  const zoomIn  = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.min(s.sx * 1.2, 4);   paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
-  const zoomOut = () => { if (paperRef.current) { const s = paperRef.current.scale(); const ns = Math.max(s.sx / 1.2, 0.2); paperRef.current.scale(ns); setZoomLevel(Math.round(ns * 100)); } };
-  const zoomFit = () => { paperRef.current?.scaleContentToFit({ padding: 40 }); setTimeout(() => { const s = paperRef.current?.scale(); if (s) setZoomLevel(Math.round(s.sx * 100)); }, 50); };
-
-  // ── Save / Load / Export ──────────────────────────────────────────────────
-  const saveGraph = () => {
-    localStorage.setItem('scada_graph_save', JSON.stringify(graphRef.current.toJSON()));
-    alert('Layout saved to local storage!');
-  };
+  // ── Load / Export ─────────────────────────────────────────────────────────
   const loadGraph = () => {
     const saved = localStorage.getItem('scada_graph_save');
     if (saved) { graphRef.current.fromJSON(JSON.parse(saved)); }
@@ -1245,7 +1299,7 @@ export const EditorPage = () => {
               {activeDrawTool === 'text'      && 'Text — click to place'}
               {activeDrawTool === 'polygon'   && 'Polygon — click vertices, dbl-click to close'}
               {activeDrawTool === 'image'     && 'Image — click to insert'}
-              {activeDrawTool === 'freeDraw'  && 'Free Draw — click & drag to draw'}
+              {activeDrawTool === 'freeDraw'  && 'Free Draw — draw a shape and it will be auto-recognized (circle, rectangle, triangle, line)'}
             </span>
           </>
         )}

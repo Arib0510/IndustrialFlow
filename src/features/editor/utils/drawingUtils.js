@@ -11,9 +11,10 @@ import * as joint from 'jointjs';
 import { v4 as uuidv4 } from 'uuid';
 
 // Custom element: no refWidth/refHeight defaults that distort the d path
-joint.shapes.scada = joint.shapes.scada || {};
-if (!joint.shapes.scada.DrawnPath) {
-  joint.shapes.scada.DrawnPath = joint.dia.Element.define('scada.DrawnPath', {
+const NS = 'scada';
+joint.shapes[NS] = joint.shapes[NS] || {};
+if (!joint.shapes[NS].DrawnPath) {
+  joint.shapes[NS].DrawnPath = joint.dia.Element.define('scada.DrawnPath', {
     attrs: {
       body: {
         fill: 'none',
@@ -165,7 +166,7 @@ export const createPolygon = ({ vertices, isDarkMode }) => {
   const relVerts = vertices.map(v => ({ x: v.x - minX, y: v.y - minY }));
   const d = buildPolyPath(relVerts, true);
 
-  return new joint.shapes.scada.DrawnPath({
+  return new joint.shapes[NS].DrawnPath({
     id: uuidv4(),
     position: { x: minX, y: minY },
     size: { width: w, height: h },
@@ -236,6 +237,91 @@ const rdpReduce = (points, epsilon) => {
   return [start, end];
 };
 
+// ── Shape recognition helpers ─────────────────────────────────────────────────
+
+// Detect corner vertices in a polyline by measuring direction-change angle
+const detectCornerPoints = (pts, minAngleDeg = 52) => {
+  const corners = [];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    const v1x = curr.x - prev.x, v1y = curr.y - prev.y;
+    const v2x = next.x - curr.x, v2y = next.y - curr.y;
+    const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+    if (len1 < 3 || len2 < 3) continue;
+    const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+    const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+    if (angleDeg > minAngleDeg) corners.push({ x: curr.x, y: curr.y });
+  }
+  return corners;
+};
+
+/**
+ * Analyse raw freehand points and return a recognised shape descriptor, or null.
+ * Returns: { type: 'ellipse'|'rectangle'|'triangle'|'line', ...geometry }
+ */
+export const recognizeFreedrawShape = (points) => {
+  if (!points || points.length < 8) return null;
+
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const bboxW = maxX - minX, bboxH = maxY - minY;
+  const bboxDiag = Math.sqrt(bboxW * bboxW + bboxH * bboxH);
+  if (bboxDiag < 15) return null;
+
+  const first = points[0], last = points[points.length - 1];
+  const gap = Math.sqrt((last.x - first.x) ** 2 + (last.y - first.y) ** 2);
+  const isClosed = gap < bboxDiag * 0.32;
+
+  // ── Line ──────────────────────────────────────────────────────────────────
+  if (!isClosed) {
+    let pathLen = 0;
+    for (let i = 1; i < points.length; i++) {
+      pathLen += Math.sqrt((points[i].x - points[i-1].x) ** 2 + (points[i].y - points[i-1].y) ** 2);
+    }
+    const straightDist = Math.sqrt((last.x - first.x) ** 2 + (last.y - first.y) ** 2);
+    if (pathLen > 0 && straightDist / pathLen > 0.87)
+      return { type: 'line', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+    return null;
+  }
+
+  // ── Circle / Ellipse ──────────────────────────────────────────────────────
+  const cx = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const cy = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const dists = points.map(p => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2));
+  const meanDist = dists.reduce((a, b) => a + b, 0) / dists.length;
+  const stdDist = Math.sqrt(dists.reduce((a, b) => a + (b - meanDist) ** 2, 0) / dists.length);
+  if (meanDist > 0 && stdDist / meanDist < 0.22)
+    return { type: 'ellipse', x: minX, y: minY, w: bboxW, h: bboxH };
+
+  // ── Polygon corners (triangle / rectangle) ────────────────────────────────
+  const epsilon = Math.max(4, bboxDiag * 0.06);
+  const reduced = rdpReduce(points, epsilon);
+  const corners = detectCornerPoints(reduced, 50);
+
+  if (corners.length === 3)
+    return { type: 'triangle', vertices: corners };
+
+  if (corners.length === 4)
+    return { type: 'rectangle', x: minX, y: minY, w: bboxW, h: bboxH };
+
+  // ── Fallback: rectangle via edge proximity ────────────────────────────────
+  const edgeTol = bboxDiag * 0.15;
+  const nearEdge = points.filter(p =>
+    Math.abs(p.x - minX) < edgeTol || Math.abs(p.x - maxX) < edgeTol ||
+    Math.abs(p.y - minY) < edgeTol || Math.abs(p.y - maxY) < edgeTol
+  );
+  if (nearEdge.length / points.length > 0.65)
+    return { type: 'rectangle', x: minX, y: minY, w: bboxW, h: bboxH };
+
+  return null;
+};
+
 // ── Freehand path from collected mouse points ─────────────────────────────────
 export const createFreedrawPath = ({ points, isDarkMode }) => {
   if (!points || points.length < 2) return null;
@@ -250,7 +336,7 @@ export const createFreedrawPath = ({ points, isDarkMode }) => {
   const d = reduced
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(p.x - minX).toFixed(1)} ${(p.y - minY).toFixed(1)}`)
     .join(' ');
-  return new joint.shapes.scada.DrawnPath({
+  return new joint.shapes[NS].DrawnPath({
     id: uuidv4(),
     position: { x: minX, y: minY },
     size: { width: w, height: h },

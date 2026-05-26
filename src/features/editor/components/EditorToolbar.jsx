@@ -130,7 +130,7 @@ export const EditorToolbar = ({
         <Btn
           active={!isPanMode && !activeDrawTool}
           onClick={() => { setIsPanMode(false); setActiveDrawTool(null); }}
-          title="Select  V"
+          title="Select  [V]"
         >
           <MousePointer2 size={15} strokeWidth={1.5} />
         </Btn>
@@ -139,7 +139,7 @@ export const EditorToolbar = ({
         <Btn
           active={isPanMode}
           onClick={() => { setIsPanMode(!isPanMode); setActiveDrawTool(null); }}
-          title="Pan  H"
+          title="Pan  [H]"
         >
           <Hand size={15} strokeWidth={1.5} />
         </Btn>
@@ -147,21 +147,21 @@ export const EditorToolbar = ({
         <Sep />
 
         {/* Draw tools */}
-        {drawBtn('rectangle', Square,   'Rectangle  R')}
-        {drawBtn('ellipse',   Circle,   'Ellipse  E'  )}
-        {drawBtn('line',      Minus,    'Line  L'     )}
-        {drawBtn('polygon',   Pentagon, 'Polygon  P'  )}
-        {drawBtn('text',      Type,     'Text  T'     )}
-        {drawBtn('image',     ImagePlus,'Image  I'    )}
-        {drawBtn('freeDraw',  Pencil,   'Free Draw (Pencil)'  )}
+        {drawBtn('rectangle', Square,   'Rectangle  [R]')}
+        {drawBtn('ellipse',   Circle,   'Ellipse  [E]'  )}
+        {drawBtn('line',      Minus,    'Line  [L]'     )}
+        {drawBtn('polygon',   Pentagon, 'Polygon  [P]'  )}
+        {drawBtn('text',      Type,     'Text  [T]'     )}
+        {drawBtn('image',     ImagePlus,'Image  [I]'    )}
+        {drawBtn('freeDraw',  Pencil,   'Free Draw — auto-recognizes shapes  [F]')}
 
         <Sep />
 
         {/* Undo / Redo */}
-        <Btn active={false} disabled={!canUndo} onClick={onUndo} title="Undo  ⌘Z">
+        <Btn active={false} disabled={!canUndo} onClick={onUndo} title="Undo  [Ctrl+Z]">
           <Undo2 size={15} strokeWidth={1.5} />
         </Btn>
-        <Btn active={false} disabled={!canRedo} onClick={onRedo} title="Redo  ⌘⇧Z">
+        <Btn active={false} disabled={!canRedo} onClick={onRedo} title="Redo  [Ctrl+Shift+Z]">
           <Redo2 size={15} strokeWidth={1.5} />
         </Btn>
 
@@ -208,21 +208,21 @@ export const EditorToolbar = ({
 
               <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
 
-              <MenuItem label="Bring to front" Icon={ChevronsUp}   onClick={close(onBringToFront)} />
-              <MenuItem label="Bring forward"  Icon={ChevronUp}    onClick={close(onBringForward)} />
-              <MenuItem label="Send backward"  Icon={ChevronDown}  onClick={close(onSendBackward)} />
-              <MenuItem label="Send to back"   Icon={ChevronsDown} onClick={close(onSendToBack)} />
+              <MenuItem label="Bring to front  Ctrl+Shift+]" Icon={ChevronsUp}   onClick={close(onBringToFront)} />
+              <MenuItem label="Bring forward   Ctrl+]"       Icon={ChevronUp}    onClick={close(onBringForward)} />
+              <MenuItem label="Send backward   Ctrl+["       Icon={ChevronDown}  onClick={close(onSendBackward)} />
+              <MenuItem label="Send to back    Ctrl+Shift+[" Icon={ChevronsDown} onClick={close(onSendToBack)} />
 
               <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
 
-              <MenuItem label="Group"   Icon={Layers} onClick={close(onGroup)}   disabled={!selectedCellIds?.length || selectedCellIds.length < 2} />
-              <MenuItem label="Ungroup" Icon={Layers} onClick={close(onUngroup)} disabled={selectedCount === 0} />
+              <MenuItem label="Group    Ctrl+G"         Icon={Layers} onClick={close(onGroup)}   disabled={!selectedCellIds?.length || selectedCellIds.length < 2} />
+              <MenuItem label="Ungroup  Ctrl+Shift+G"   Icon={Layers} onClick={close(onUngroup)} disabled={selectedCount === 0} />
 
               <div style={{ height: 1, backgroundColor: 'var(--border)', margin: '4px 0' }} />
 
-              <MenuItem label="Save layout" Icon={Save}       onClick={close(saveGraph)}   />
-              <MenuItem label="Load layout" Icon={FolderOpen} onClick={close(loadGraph)}   />
-              <MenuItem label="Export JSON" Icon={FileDown}   onClick={close(exportGraph)} />
+              <MenuItem label="Save layout  Ctrl+S" Icon={Save}       onClick={close(saveGraph)}   />
+              <MenuItem label="Load layout"          Icon={FolderOpen} onClick={close(loadGraph)}   />
+              <MenuItem label="Export JSON"          Icon={FileDown}   onClick={close(exportGraph)} />
             </div>
           )}
         </div>
